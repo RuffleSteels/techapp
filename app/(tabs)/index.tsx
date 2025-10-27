@@ -1,98 +1,262 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React from "react";
+import {ImageBackground, StyleSheet, Text, View} from "react-native";
+import {GlassView} from "expo-glass-effect";
+import {styles} from "./theme";
+// @ts-ignore
+import Pod from "@/assets/images/pod.svg"
+import {Button, Host} from '@expo/ui/swift-ui';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import {glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
+import {useRouter} from "expo-router";
+import {IconSymbol} from "@/expo-template-default-main/components/ui/icon-symbol";
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    const router = useRouter();
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
-  );
+    return (
+        <View style={styles.container}>
+
+            <ImageBackground
+                source={require("@/assets/images/gradient.png")}
+                style={styles.background}
+                //@ts-ignore
+                imageStyle={{
+                    filter: 'brightness(0.2)',
+                }}
+                resizeMode="cover"
+            >
+                <View style={localStyles.wrapper}>
+                    <View style={localStyles.titleContainer}>
+                        <View style={localStyles.titleBox}>
+                            <Text style={[localStyles.text, localStyles.largeTitle]}>Home</Text>
+                            <Host style={{
+                                width: 60,
+                                height: '100%'
+                            }}>
+
+                                <Button
+                                    role="default"
+                                    variant="glassProminent"
+                                    color={'rgba(0,0,0,0.6)'}
+
+                                >
+                                    <IconSymbol color={'white'} name="ellipsis"/>
+                                </Button>
+                            </Host>
+                        </View>
+                        <Text style={[localStyles.text, localStyles.headline]}>My Devices</Text>
+                    </View>
+
+                    <View style={{
+                        gap: 16
+                    }}>
+                        <GlassView style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
+                                   glassEffectStyle="clear">
+                            <View style={[localStyles.glassBoxBox]}>
+                                <Host style={{
+                                    width: '100%',
+                                    height: '100%'
+                                }}>
+                                    <Button
+                                        onPress={() => {
+                                            router.push('/device')
+                                        }}
+                                        variant="plain"
+                                        modifiers={[
+                                            glassEffect({
+                                                glass: {
+                                                    variant: 'identity',
+                                                    interactive: true,
+                                                },
+                                                shape: 'rectangle',
+                                            }),
+                                        ]}
+                                    >
+                                        <View style={[{
+                                            width: '100%',
+                                            height: '100%',
+                                            flexDirection: 'row',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            paddingHorizontal: 16
+                                        }, localStyles.deviceItemOuterOuter]}>
+                                            <View style={localStyles.deviceItemDetails}>
+                                                <Pod style={
+                                                    {alignSelf: "center"}
+                                                } height={'90%'}/>
+                                                <View style={localStyles.deviceItemStuff}>
+                                                    <View>
+                                                        <Text style={[localStyles.text, localStyles.headline]}>Den
+                                                            1</Text>
+                                                        <Text
+                                                            style={[localStyles.text, localStyles.subheadline, localStyles.greyed]}>Acoustic
+                                                            Pod</Text>
+                                                    </View>
+
+
+                                                    <GlassView style={localStyles.hertzTag}>
+                                                        <IconSymbol size={28} color={'white'} name="waveform.path"/>
+                                                        <Text
+                                                            style={[localStyles.text, localStyles.footnote]}>132.7Hz</Text>
+                                                    </GlassView>
+                                                </View>
+
+                                            </View>
+                                            <IconSymbol style={{}} size={30} name={'chevron.forward'} color={'white'}/>
+                                        </View>
+
+
+                                    </Button>
+                                </Host>
+                            </View>
+                        </GlassView>
+
+                        <GlassView style={[localStyles.glassBox, localStyles.deviceItemOuterOuter]}
+                                   tintColor={'rgba(50,50,50,.7)'} glassEffectStyle="clear">
+                            <GlassView style={[localStyles.glassBoxBox, {
+                                outlineWidth: 1,
+                                outlineColor: 'rgba(255,255,255,0.5)'
+                            }]} glassEffectStyle="clear" tintColor={'rgba(50,50,50,.5)'}>
+                                <Host style={{
+                                    width: '100%',
+                                    height: '100%'
+                                }}>
+                                    <Button
+                                        onPress={() => {
+                                            router.push('/pairing')
+                                        }}
+                                        variant="plain"
+                                        modifiers={[
+                                            padding({
+                                                // all: 18,
+                                            }),
+                                            glassEffect({
+                                                glass: {
+                                                    variant: 'identity',
+                                                    interactive: true,
+                                                },
+                                                shape: 'rectangle',
+                                            }),
+                                        ]}
+                                    >
+                                        <View style={{
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            height: '100%'
+                                        }}>
+                                            <IconSymbol size={50} color={'white'} name="plus"/>
+                                        </View>
+
+                                    </Button>
+                                </Host>
+                            </GlassView>
+                        </GlassView>
+                    </View>
+
+                </View>
+            </ImageBackground>
+        </View>
+    );
 }
 
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+const localStyles = StyleSheet.create({
+    wrapper: {
+        width: "100%",
+        height: "100%",
+        paddingHorizontal: 16,
+        paddingTop: 72,
+        gap: 10
+    },
+    deviceItemStuff: {
+        height: "100%",
+        justifyContent: "space-between",
+        flexDirection: 'column'
+    },
+    footnote: {
+        fontSize: 13,
+        fontWeight: "bold",
+    },
+    hertzTag: {
+        paddingHorizontal: 8,
+        paddingLeft: 6,
+        paddingTop: 3,
+        paddingBottom: 4,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        borderRadius: 12,
+    },
+    titleBox: {
+        width: "100%",
+        justifyContent: "space-between",
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    greyed: {
+        color: "#C5C5C5",
+    },
+    subheadline: {
+        fontSize: 15,
+        fontWeight: "regular",
+
+    },
+    deviceItemDetails: {
+        flexDirection: "row",
+        height: "100%",
+        gap: 24,
+    },
+    headline: {
+        fontSize: 17,
+        fontWeight: "bold",
+    },
+    largeTitle: {
+        fontSize: 34,
+        fontWeight: "bold",
+    },
+    titleContainer: {
+        gap: 10,
+
+    },
+    deviceItemInner: {
+        alignItems: "center",
+        justifyContent: "center",
+        width: "100%",
+        height: "100%",
+        borderRadius: 16
+    },
+    deviceItem: {
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 16,
+        paddingVertical: 12
+    },
+    deviceItemOuterOuter: {
+        padding: 12,
+        // paddingVertical:72
+    },
+    glassBox: {
+        width: '100%',
+        height: 106,
+        borderRadius: 24,
+        overflow: "hidden",
+        alignItems: "center",
+        // position: "absolute",
+        justifyContent: "center",
+        // backgroundColor: "rgba(0, 0, 0, 0,8)", // light translucent layer
+    },
+    glassBoxBox: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 16,
+        overflow: "hidden",
+        alignItems: "center",
+        // position: "absolute",
+        justifyContent: "center",
+        // backgroundColor: "rgba(0, 0, 0, 0,8)", // light translucent layer
+    },
+    text: {
+        color: "#fff",
+    },
 });
