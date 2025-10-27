@@ -1,9 +1,11 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
 import * as Haptics from 'expo-haptics';
 import {styles} from "./(tabs)/theme";
 import {Stack} from "expo-router";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useLocalSearchParams } from "expo-router";
 
 import {GlassView} from "expo-glass-effect";
 import {foregroundStyle, glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
@@ -206,19 +208,167 @@ function toWords(num: number): string {
     }
     return ''
 }
-
+const saveData = async (name, data) => {
+    try {
+        await AsyncStorage.setItem(name, JSON.stringify(data));
+    } catch (e) {
+        console.error('Failed to save profile', e);
+    }
+};
+const loadData = async (type: string) => {
+    try {
+        const json = await AsyncStorage.getItem(type);
+        return json ? JSON.parse(json) : null;
+    } catch (e) {
+        console.error('Failed to load profile', e);
+        return null;
+    }
+};
 export default function Pairing() {
+    const { id } = useLocalSearchParams();
+    const [devices, setDevices] = useState<any[]>([]);
+    const [deviceName, setDeviceName] = useState('');
+    const [presets, setPresets] = useState<Preset[]>([]);
+    const [rooms, setRooms] = useState<Room[]>([]);
     const [currentFrequency, setCurrentFrequency] = useState(0);
-    const [currentMode, setCurrentMode] = useState(0);
-    const [editModal, setEditModal] = useState(-1);
-    const [presets, setPresets] = useState(presetss);
-    const [rooms, setRooms] = useState(roomss);
-    const [currentId, setCurrentId] = useState(0);
+    const [currentMode, setCurrentMode] = useState(-1);
+    const [currentId, setCurrentId] = useState(-1);
     const [currentDimension, setCurrentDimension] = useState(
         Object.fromEntries(
             roomss.map(room => [room.id, 0]) // 0 = length
         )
     );
+    const hasLoaded = useRef(false);
+
+    useEffect(() => {
+        const init = async () => {
+            // await saveData('devices', [{id:0, currentId: -1, currentMode: -1,name:'Den',frequency:100}]);
+            // await saveData('presets', presetss)s
+            // await saveData('rooms', roomss)
+            const storedDevices = (await loadData('devices')) || [{id:0, currentId: -1, currentMode: -1,name:'Den',frequency:100}];
+            const storedRooms = (await loadData('rooms')) || presetss;
+            const storedPresets = (await loadData('presets')) || roomss;
+
+            setDevices(storedDevices);
+            setRooms(storedRooms);
+            setPresets(storedPresets);
+
+            const index = parseInt(id as string);
+            if (!isNaN(index) && storedDevices[index]) {
+                setDeviceName(storedDevices[index]?.name ?? '');
+                setCurrentFrequency(storedDevices[index]?.frequency ?? '');
+                setCurrentId(storedDevices[index]?.currentId ?? -1);
+                setCurrentMode(storedDevices[index]?.currentMode ?? -1);
+                setCurrentDimension(storedDevices[index]?.currentDimension ?? {});
+            } else {
+                setDeviceName('');
+                setCurrentFrequency(0);
+                setCurrentId(-1);
+                setCurrentMode(-1);
+            }
+
+            // ✅ Mark as initialized
+            hasLoaded.current = true;
+        };
+
+        init();
+    }, [id]);
+
+    // ✅ Only save after initial load
+    useEffect(() => {
+        if (hasLoaded.current) saveData('presets', presets);
+    }, [presets]);
+
+    useEffect(() => {
+        if (hasLoaded.current) saveData('rooms', rooms);
+    }, [rooms]);
+
+    useEffect(() => {
+        if (hasLoaded.current) saveData('devices', devices);
+    }, [devices]);
+
+    useEffect(() => {
+        if (hasLoaded.current) {
+            if (!id) return;
+
+            const parsedId = parseInt(id as string);
+            if (isNaN(parsedId)) return;
+
+            setDevices(prev => {
+                if (!Array.isArray(prev)) return [];
+                return prev.map(item =>
+                    item.id === parsedId ? { ...item, name: deviceName } : item
+                );
+            });
+        }
+    }, [deviceName, id]);
+
+    useEffect(() => {
+        if (hasLoaded.current) {
+            if (!id) return;
+
+            const parsedId = parseInt(id as string);
+            if (isNaN(parsedId)) return;
+
+            setDevices(prev => {
+                if (!Array.isArray(prev)) return [];
+                return prev.map(item =>
+                    item.id === parsedId ? { ...item, frequency: currentFrequency } : item
+                );
+            });
+        }
+    }, [currentFrequency, id]);
+
+
+    useEffect(() => {
+        if (hasLoaded.current) {
+            if (!id) return;
+
+            const parsedId = parseInt(id as string);
+            if (isNaN(parsedId)) return;
+
+            setDevices(prev => {
+                if (!Array.isArray(prev)) return [];
+                return prev.map(item =>
+                    item.id === parsedId ? { ...item, currentMode: currentMode } : item
+                );
+            });
+        }
+    }, [currentMode, id]);
+
+    useEffect(() => {
+        if (hasLoaded.current) {
+            if (!id) return;
+
+            const parsedId = parseInt(id as string);
+            if (isNaN(parsedId)) return;
+
+            setDevices(prev => {
+                if (!Array.isArray(prev)) return [];
+                return prev.map(item =>
+                    item.id === parsedId ? { ...item, currentId: currentId } : item
+                );
+            });
+        }
+    }, [currentId, id]);
+
+    useEffect(() => {
+        if (hasLoaded.current) {
+            if (!id) return;
+
+            const parsedId = parseInt(id as string);
+            if (isNaN(parsedId)) return;
+
+            setDevices(prev => {
+                if (!Array.isArray(prev)) return [];
+                return prev.map(item =>
+                    item.id === parsedId ? { ...item, currentDimension: currentDimension } : item
+                );
+            });
+        }
+    }, [currentDimension, id]);
+
+    const [editModal, setEditModal] = useState(-1);
     const [presetPopupWindow, setPresetPopupWindow] = useState(0);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newPresetName, setNewPresetName] = useState('');
@@ -252,7 +402,7 @@ export default function Pairing() {
 
     const headerHeight = useHeaderHeight();
 
-    const [deviceName, setDeviceName] = useState('Den 1')
+
     const [newDeviceName, setNewDeviceName] = useState(deviceName)
     const [deviceNameEdit, setDeviceNameEdit] = useState(false)
 

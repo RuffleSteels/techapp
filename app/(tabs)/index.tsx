@@ -59,7 +59,7 @@ export default function HomeScreen() {
                                 }}>
                                     <Button
                                         onPress={() => {
-                                            router.push('/device')
+                                            router.push({pathname:'/device', params: {id:'0'}})
                                         }}
                                         variant="plain"
                                         modifiers={[
