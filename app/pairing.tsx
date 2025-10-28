@@ -63,7 +63,6 @@ export default function Pairing() {
                 if (device && device.name) {
                     setDevices(prev => {
                         if (prev.find(d => d.id === device.id)) return prev;
-                        console.log(device)
                         return [...prev, device];
                     });
                 }

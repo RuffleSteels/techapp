@@ -26,7 +26,7 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
     // const [triggerAnim, setTriggerAnim] = useState(false);
     const [stage, setStage] = useState(0); // 0 = idle, 1 = accelerate, 2 = final stop
     const [name, setName] = useState('')
-    const { setAnimationRunning } = useAnimation();
+    const { setAnimationRunning, animationRunning } = useAnimation();
     const before = { x: 0, y: 30, z: 0 };
     const mid = { x: 450, y: 500, z: 0 };
     const stop = { x: 0, y: 0, z: 0 }; // final: no rotation speeds
@@ -41,6 +41,55 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
     const top = useSharedValue(-12);
     const scrollRef = useRef(null);
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+    const frameRef = useRef<number | null>(null);
+    useEffect(() => {
+        let running = true;
+        let lastTime = Date.now();
+        let lastHapticTime = Date.now();
+
+        // Configurable parameters
+        let delay = 700;        // start at 100ms between haptics
+        const minDelay = 10;    // cap at 10ms
+        const factor = 0.78;     // exponential ramp rate
+
+        const tick = () => {
+            if (!running) return;
+
+            const now = Date.now();
+            const elapsed = now - lastTime;
+            const sinceHaptic = now - lastHapticTime;
+            lastTime = now;
+
+            // If both conditions are active
+            if (triggerAnim && animationRunning) {
+                // If enough ms have passed since the last haptic → trigger one
+                if (sinceHaptic >= delay) {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    lastHapticTime = now;
+
+                    // Exponentially ramp up (reduce delay)
+                    delay = Math.max(minDelay, delay * factor);
+                }
+
+                requestAnimationFrame(tick);
+            } else {
+                // stopped → one last Heavy pulse
+                // Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            }
+        };
+
+        // Start loop
+        requestAnimationFrame(tick);
+
+        return () => {
+            running = false;
+            // optional heavy if stopped mid-animation
+            if (triggerAnim && animationRunning) {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            }
+        };
+    }, [triggerAnim, animationRunning]);
     useEffect(() => {
         const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
             setKeyboardHeight(event.endCoordinates.height);
@@ -76,9 +125,13 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
             return;
         }
         setTimeout(() => {
-            setAnimationRunning(false)
+            // setAnimationRunning(false)
             fihal.value = withTiming(1.0, { duration: 800 })
         }, 1000)
+        setTimeout(() => {
+            setAnimationRunning(false)
+            // fihal.value = withTiming(1.0, { duration: 800 })
+        }, 2000)
 
     },[fihal, stage, triggerAnim])
 
@@ -105,6 +158,7 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
         );
     }, [triggerAnim]);
 
+
     // Rotation speed interpolation
     useEffect(() => {
         const duration = stage === 2 ? 1800 : 1200;
@@ -115,6 +169,7 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
         const tick = (now: number) => {
             const t = Math.min((now - start) / duration, 1);
             const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
+
             current.current = {
                 x: from.x + (to.x - from.x) * ease,
                 y: from.y + (to.y - from.y) * ease,
@@ -157,7 +212,7 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
     return (
             <Animated.View
                 style={[styles.container, cubeStyle, {
-                    paddingBottom:(keyboardHeight === 0 ) ? 0 : keyboardHeight + 100,
+                    paddingBottom:(keyboardHeight === 0 || stage === 0) ? 0 : keyboardHeight + 200,
                 }]}
             >
                 <Animated.View style={[{
@@ -179,20 +234,20 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
                         // paddingBottom0
                         width: '100%',
                         height: '100%',
-                        gap: 48
+                        gap: 52
                     }}>
 
-                        <View style={{gap:32}}>
+                        <View style={{gap:16}}>
                             <Text style={{
                                 color: 'white',
                                 fontWeight: '200',
                                 fontSize: 25
                             }}>
-                                For each dimension of your space, the following frequencies have been calculated as likely to resonate. Using these could improve the sound in your space.
+                                For each dimension of your space, the following frequencies have been calculated as likely to resonate. Setting your Pod to these frequencies could improve the sound in your space.
                             </Text>
 
                             <View style={{
-                                gap: 24
+                                gap: 16
                             }}>
                                 <Text style={{
                                     color: 'white',
@@ -234,14 +289,19 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
                                 autoFocus={false}
                                 inputMode={'text'}
                                 maxLength={15}
+                                onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+
+                                }}
 
                                 onChangeText={setName}
                                 style={{
-                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                    backgroundColor: 'rgba(255,255,255,0.06)',
                                     color: 'white',
-                                    padding: 12,
-                                    paddingVertical: 7,
+                                    padding: 16,
+                                    paddingVertical: 8,
                                     borderRadius: 120,
+
                                     flex: 1,
                                     // padding: 10,
                                     fontSize: 22,
@@ -251,7 +311,10 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
                                 width: 148
                             }}>
                                 <Button onPress={ async () => {
+
                                     if (name) {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+
                                         const devices = await loadData('devices')
                                         const rooms = await loadData('rooms')
                                         const id = findFirstMissingId(rooms)
@@ -284,6 +347,9 @@ export default function CubeThing({ setDims,triggerAnim,setTriggerAnim,dims }) {
                                         }, 100)
 
                                         setTriggerAnim(false)
+                                    } else {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid);
+
                                     }
                                 }} role="default"
                                         variant="plain"

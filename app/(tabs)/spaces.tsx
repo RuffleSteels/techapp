@@ -18,6 +18,7 @@ import {GlassView} from "expo-glass-effect";
 import CubeThing from "@/app/components/CubeThing";
 import { useFocusEffect } from '@react-navigation/native';
 import {useAnimation} from "@/app/components/AnimationContext";
+import * as Haptics from "expo-haptics";
 
 const colourKey: Record<number, string> = {
     0: '#D0B830',
@@ -147,6 +148,10 @@ export default function HomeScreen() {
                                                             width: '100%',
                                                         }}>
                                                             <Button
+                                                                onPress={() => {
+                                                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+
+                                                                }}
                                                                 variant="plain"
                                                                 modifiers={[
                                                                     glassEffect({
@@ -170,7 +175,6 @@ export default function HomeScreen() {
                                                                         inputMode={'decimal'}
                                                                         onChangeText={(text) => {
                                                                             const textt = text.replace('m', '').replaceAll('_', '')
-                                                                            console.log(textt)
                                                                             if (/^[0-9]*\.?[0-9]*$/.test(textt)) {
                                                                                 setDims(prev => {
                                                                                     const newDims = [...prev]
@@ -208,6 +212,8 @@ export default function HomeScreen() {
                                     <Host>
                                         <Button
                                             onPress={() => {
+                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
                                                 setTriggerAnim(true)
                                                 // setNameModal(true)
                                             }}
@@ -320,7 +326,6 @@ export default function HomeScreen() {
                                         height: [parseFloat(dims[2].value), 100],
                                         id: 0
                                     }
-                                    console.log(newRoom)
                                     setTriggerAnim(true)
                                     setName('')
                                     setNameModal(false)

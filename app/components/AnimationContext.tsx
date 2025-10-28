@@ -8,7 +8,7 @@ interface AnimationContextType {
 
 const AnimationContext = createContext<AnimationContextType | undefined>(undefined);
 
-export const AnimationProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
+export default function AnimationProvider({ children }) {
     const [animationRunning, setAnimationRunning] = useState(false);
     return (
         <AnimationContext.Provider value={{ animationRunning, setAnimationRunning }}>

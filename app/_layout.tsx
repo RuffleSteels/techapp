@@ -2,7 +2,7 @@ import {Stack} from "expo-router";
 import {StatusBar, View} from "react-native";
 import {SafeAreaProvider} from "react-native-safe-area-context";
 import React from "react";
-import {AnimationProvider} from "@/app/components/AnimationContext";
+import AnimationProvider from "@/app/components/AnimationContext";
 
 export default function RootLayout() {
     return (
@@ -20,7 +20,7 @@ export default function RootLayout() {
                             contentStyle: {backgroundColor: "#121212"}
                         }}
                     >
-                        <Stack.Screen name="(tabs)" options={{headerShown: false}}/>
+                        <Stack.Screen  name="(tabs)" options={{gestureEnabled: false,headerShown: false}}/>
                         <Stack.Screen name="pairing" options={{headerShown: false}}/>
 
 

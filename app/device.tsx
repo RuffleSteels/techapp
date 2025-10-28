@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from "react";
 import {Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
 import * as Haptics from 'expo-haptics';
 import {styles} from "@/lib/theme";
-import {Stack, useLocalSearchParams} from "expo-router";
+import {Stack, useLocalSearchParams, useRouter} from "expo-router";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -207,6 +207,8 @@ function toWords(num: number): string {
 
 export default function Pairing() {
     const {id} = useLocalSearchParams();
+    const router = useRouter();
+
     const [devices, setDevices] = useState<any[]>([]);
     const [deviceName, setDeviceName] = useState('');
     const [presets, setPresets] = useState<Preset[]>([]);
@@ -933,7 +935,7 @@ export default function Pairing() {
                                                     onPress={() => {
                                                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
 
-                                                        Alert.alert('Changing')
+                                                        router.push('/(tabs)/spaces')
                                                     }}
                                                     role="default"
                                                     variant="plain"
