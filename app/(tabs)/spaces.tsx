@@ -11,13 +11,11 @@ import {
     View
 } from "react-native";
 import {styles} from "@/lib/theme";
-import WireframeCuboid from "@/app/components/Cuboid";
 import {Button, Host} from "@expo/ui/swift-ui";
 import {glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
 import {GlassView} from "expo-glass-effect";
 import CubeThing from "@/app/components/CubeThing";
-import { useFocusEffect } from '@react-navigation/native';
-import {useAnimation} from "@/app/components/AnimationContext";
+import {useFocusEffect} from '@react-navigation/native';
 import * as Haptics from "expo-haptics";
 
 const colourKey: Record<number, string> = {
@@ -46,7 +44,6 @@ export default function HomeScreen() {
     const [nameModal, setNameModal] = React.useState(false)
     const [name, setName] = React.useState('')
     const [triggerAnim, setTriggerAnim] = React.useState(false)
-
 
 
     useFocusEffect(
@@ -114,7 +111,7 @@ export default function HomeScreen() {
                                                 justifyContent: 'space-between',
                                                 width: '100%'
                                             }}>
-                                                <View >
+                                                <View>
                                                     <Text style={[localStyles.text, {
                                                         fontSize: 22,
                                                         fontWeight: '600',
@@ -249,7 +246,8 @@ export default function HomeScreen() {
                                 </View>
                             </View>
                         </View>
-                        <CubeThing dims={dims} setTriggerAnim={setTriggerAnim} setDims={setDims} triggerAnim={triggerAnim}/>
+                        <CubeThing dims={dims} setTriggerAnim={setTriggerAnim} setDims={setDims}
+                                   triggerAnim={triggerAnim}/>
                     </ImageBackground>
                 </View>
             </TouchableWithoutFeedback>

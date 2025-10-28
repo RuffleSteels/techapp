@@ -20,7 +20,7 @@ export default function RootLayout() {
                             contentStyle: {backgroundColor: "#121212"}
                         }}
                     >
-                        <Stack.Screen  name="(tabs)" options={{gestureEnabled: false,headerShown: false}}/>
+                        <Stack.Screen name="(tabs)" options={{gestureEnabled: false, headerShown: false}}/>
                         <Stack.Screen name="pairing" options={{headerShown: false}}/>
 
 

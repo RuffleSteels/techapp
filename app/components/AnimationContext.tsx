@@ -1,5 +1,5 @@
 // AnimationContext.tsx
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, ReactNode } from "react";
 
 interface AnimationContextType {
     animationRunning: boolean;
@@ -8,14 +8,18 @@ interface AnimationContextType {
 
 const AnimationContext = createContext<AnimationContextType | undefined>(undefined);
 
-export default function AnimationProvider({ children }) {
+interface AnimationProviderProps {
+    children: ReactNode;
+}
+
+export default function AnimationProvider({ children }: AnimationProviderProps) {
     const [animationRunning, setAnimationRunning] = useState(false);
     return (
         <AnimationContext.Provider value={{ animationRunning, setAnimationRunning }}>
             {children}
         </AnimationContext.Provider>
     );
-};
+}
 
 export const useAnimation = () => {
     const ctx = useContext(AnimationContext);

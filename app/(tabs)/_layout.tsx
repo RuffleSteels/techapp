@@ -1,12 +1,12 @@
 import {Icon, Label, NativeTabs} from "expo-router/unstable-native-tabs";
 import {useAnimation} from "@/app/components/AnimationContext";
-import { View } from "react-native";
+import {View} from "react-native";
 
 export default function TabsLayout() {
-    const { animationRunning } = useAnimation();
+    const {animationRunning} = useAnimation();
 
     return (
-        <View style={{ flex: 1 }}>
+        <View style={{flex: 1}}>
             <NativeTabs>
                 <NativeTabs.Trigger name="index">
                     <Label>Home</Label>

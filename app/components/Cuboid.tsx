@@ -1,6 +1,6 @@
 // WireframeCuboid.tsx
-import React, { useEffect, useRef, useState, useMemo } from "react";
-import Svg, { Line } from "react-native-svg";
+import React, {useEffect, useMemo, useRef, useState} from "react";
+import Svg, {Line} from "react-native-svg";
 
 const deg2rad = (deg: number) => (deg * Math.PI) / 180;
 
@@ -12,12 +12,12 @@ export default function WireframeCuboid({
                                             rotationSpeedX = 0,
                                             rotationSpeedY = 0,
                                             rotationSpeedZ = 0,
-                                            targetAngleX,
-                                            targetAngleY,
-                                            targetAngleZ,
+                                            targetAngleX = undefined,
+                                            targetAngleY = undefined,
+                                            targetAngleZ = undefined,
                                         }) {
-    const [angle, setAngle] = useState({ x: 20, y: 0, z: 0 });
-    const raf = useRef<number>();
+    const [angle, setAngle] = useState({x: 20, y: 0, z: 0});
+    const raf = useRef<number>(null);
 
     useEffect(() => {
         let last = performance.now();
@@ -53,7 +53,11 @@ export default function WireframeCuboid({
         };
 
         raf.current = requestAnimationFrame(tick);
-        return () => raf.current && cancelAnimationFrame(raf.current);
+        return () => {
+            if (raf.current !== null) {
+                cancelAnimationFrame(raf.current);
+            }
+        };
     }, [
         rotationSpeedX,
         rotationSpeedY,

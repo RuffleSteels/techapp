@@ -5,7 +5,7 @@ import {useRouter} from "expo-router";
 import {Button, Host} from '@expo/ui/swift-ui';
 import {GlassView} from "expo-glass-effect";
 import {BleManager} from "react-native-ble-plx";
-import {IconSymbol} from "@/expo-template-default-main/components/ui/icon-symbol";
+import {IconSymbol} from "@/lib/ui/icon-symbol";
 // @ts-ignore
 import Pod from "@/assets/images/pod.svg"
 import {LinearGradient} from 'expo-linear-gradient';
@@ -16,12 +16,6 @@ export default function Pairing() {
     const router = useRouter();
     const [devices, setDevices] = useState<any[]>([]);
     const [failed, setFailed] = useState(false)
-
-
-    // const devices = [{
-    //     name: 'Acoustic Pod'
-    // }]
-
 
     useEffect(() => {
         // iOS Simulator detection

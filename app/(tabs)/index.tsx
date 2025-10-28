@@ -8,15 +8,11 @@ import {Button, Host} from '@expo/ui/swift-ui';
 
 import {glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
 import {useRouter} from "expo-router";
-import {IconSymbol} from "@/expo-template-default-main/components/ui/icon-symbol";
+import {IconSymbol} from "@/lib/ui/icon-symbol";
 import {loadData, saveData} from "@/lib/utils";
-import {useFocusEffect} from '@react-navigation/native'; // or 'expo-router'
+import {useFocusEffect} from '@react-navigation/native';
+import {Device} from "@/lib/types";
 
-type Device = {
-    name: string;
-    frequency: number;
-    id: number;
-};
 
 export default function HomeScreen() {
     const [hidden, setHidden] = React.useState(false);
@@ -28,7 +24,7 @@ export default function HomeScreen() {
                 const devices = await loadData('devices');
 
                 if (!devices) {
-                    const d= [{id:0, currentId: -1, currentMode: -1,name:'Den',frequency:100}]
+                    const d = [{id: 0, currentId: -1, currentMode: -1, name: 'Den', frequency: 100}] as Device[]
                     await saveData('devices', d);
                     setDevices(d);
 

@@ -4,7 +4,6 @@ import * as Haptics from 'expo-haptics';
 import {styles} from "@/lib/theme";
 import {Stack, useLocalSearchParams, useRouter} from "expo-router";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {GlassView} from "expo-glass-effect";
 import {foregroundStyle, glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
@@ -12,8 +11,9 @@ import {useHeaderHeight} from '@react-navigation/elements';
 
 // @ts-ignore
 import Graph from "@/assets/images/graph.svg"
-import {IconSymbol} from "@/expo-template-default-main/components/ui/icon-symbol";
+import {IconSymbol} from "@/lib/ui/icon-symbol";
 import {loadData, saveData} from "@/lib/utils";
+import {Preset, Room} from "@/lib/types";
 
 
 const presetss = [
@@ -57,18 +57,7 @@ const roomss = [
         id: 2
     }
 ]
-type Room = {
-    name: string;
-    length: number[];
-    width: number[];
-    height: number[];
-    id: number;
-};
-type Preset = {
-    name: string;
-    frequency: number;
-    id: number;
-};
+
 
 function findFirstMissingId(items: Preset[]): number {
     const ids = new Set(items.map(item => item.id));
