@@ -1,25 +1,29 @@
 import React from "react";
 import {
     ImageBackground,
-    StyleSheet,
     Keyboard,
-    TouchableWithoutFeedback,
+    Modal,
+    Pressable,
+    StyleSheet,
     Text,
     TextInput,
-    View,
-    Pressable, Alert, Modal
+    TouchableWithoutFeedback,
+    View
 } from "react-native";
-import {styles} from "./theme";
+import {styles} from "@/lib/theme";
 import WireframeCuboid from "@/app/components/Cuboid";
 import {Button, Host} from "@expo/ui/swift-ui";
 import {glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
 import {GlassView} from "expo-glass-effect";
+import CubeThing from "@/app/components/CubeThing";
+import { useFocusEffect } from '@react-navigation/native';
+import {useAnimation} from "@/app/components/AnimationContext";
 
-const colourKey = {
+const colourKey: Record<number, string> = {
     0: '#D0B830',
     1: '#30D0D0',
     2: '#D030C8',
-}
+};
 
 const dimss = [
     {
@@ -40,8 +44,32 @@ export default function HomeScreen() {
     const [dims, setDims] = React.useState(dimss)
     const [nameModal, setNameModal] = React.useState(false)
     const [name, setName] = React.useState('')
+    const [triggerAnim, setTriggerAnim] = React.useState(false)
+
+
+
+    useFocusEffect(
+        React.useCallback(() => {
+
+            return () => {
+                setTimeout(() => {
+                    setDims(prev => {
+                        const newDims = [...prev]
+                        newDims[0].value = '0'
+                        newDims[1].value = '0'
+                        newDims[2].value = '0'
+                        return newDims
+                    })
+                }, 200)
+
+                setTriggerAnim(false)
+            };
+        }, [])
+    );
+
     return (
         <>
+
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
 
                 <View style={styles.container}>
@@ -61,8 +89,10 @@ export default function HomeScreen() {
                                     <Text style={[localStyles.text, localStyles.largeTitle]}>Calculate Spaces</Text>
                                 </View>
                                 <Text style={[localStyles.text, localStyles.body]}><Text
-                                    style={[localStyles.text, localStyles.headline]}>Enter the dimensions of the space you will
-                                    put the pod in.{' '}</Text>This will calculate the likely frequencies which will resonate in
+                                    style={[localStyles.text, localStyles.headline]}>Enter the dimensions of the space
+                                    you will
+                                    put the pod in.{' '}</Text>This will calculate the likely frequencies which will
+                                    resonate in
                                     the room, saving them as a room preset.</Text>
                             </View>
 
@@ -72,12 +102,18 @@ export default function HomeScreen() {
                                 justifyContent: 'flex-start',
                                 alignItems: 'flex-end'
                             }}>
-                                <View style={{flexDirection: 'column', width: '50%', gap: 12}}>
+                                <View style={{flexDirection: 'column', width: '50%', gap: 32}}>
 
                                     {
                                         dimss.map((item, i) => (
-                                            <View key={i} style={{flexDirection: 'row', alignItems: 'center', gap: 32, justifyContent:'space-between', width: '100%'}}>
-                                                <View>
+                                            <View key={i} style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 32,
+                                                justifyContent: 'space-between',
+                                                width: '100%'
+                                            }}>
+                                                <View >
                                                     <Text style={[localStyles.text, {
                                                         fontSize: 22,
                                                         fontWeight: '600',
@@ -88,9 +124,9 @@ export default function HomeScreen() {
                                                     </Text>
                                                     <View
                                                         style={{
-                                                            position:'absolute',
-                                                            left:0,
-                                                            bottom:0,
+                                                            position: 'absolute',
+                                                            left: 0,
+                                                            bottom: 0,
                                                             height: 3,                 // thickness of underline
                                                             width: '100%',                 // desired underline width
                                                             backgroundColor: colourKey[i],
@@ -130,20 +166,23 @@ export default function HomeScreen() {
                                                                     <TextInput
                                                                         placeholder="___"
                                                                         placeholderTextColor="#aaa"
-                                                                        value={(parseFloat(dims[i].value) === 0 ? '__' : dims[i].value)+'m'}
+                                                                        value={(parseFloat(dims[i].value) === 0 ? '__' : dims[i].value) + 'm'}
                                                                         inputMode={'decimal'}
                                                                         onChangeText={(text) => {
-                                                                            const textt = text.replace('m','').replaceAll('_','')
+                                                                            const textt = text.replace('m', '').replaceAll('_', '')
                                                                             console.log(textt)
                                                                             if (/^[0-9]*\.?[0-9]*$/.test(textt)) {
-                                                                                setDims(prev=> {
+                                                                                setDims(prev => {
                                                                                     const newDims = [...prev]
                                                                                     newDims[i].value = textt ? textt : '0'
                                                                                     return newDims
                                                                                 })
                                                                             }
                                                                         }}
-                                                                        selection={{ start: (dims[i].value + 'm').length - 1, end: (dims[i].value+ 'm').length - 1 }}
+                                                                        selection={{
+                                                                            start: (dims[i].value + 'm').length - 1,
+                                                                            end: (dims[i].value + 'm').length - 1
+                                                                        }}
 
                                                                         style={{
                                                                             color: 'white',
@@ -169,7 +208,8 @@ export default function HomeScreen() {
                                     <Host>
                                         <Button
                                             onPress={() => {
-                                                setNameModal(true)
+                                                setTriggerAnim(true)
+                                                // setNameModal(true)
                                             }}
                                             disabled={parseFloat(dims[0].value) === 0 || parseFloat(dims[1].value) === 0 || parseFloat(dims[2].value) === 0}
                                             role="default"
@@ -201,29 +241,9 @@ export default function HomeScreen() {
                                         </Button>
                                     </Host>
                                 </View>
-
-
                             </View>
-
-                            <View style={{
-                                padding: 52,
-                                paddingBottom: 116,
-                                boxShadow: 'inset 0 10px 15px rgba(0,0,0,0.32)',
-                                backgroundColor: 'rgba(0,0,0,0.27)',
-                                flex: 1,
-                                width: '100%',
-                                height: 'auto',
-                                justifyContent: "flex-end",
-                                alignItems: "center"
-                            }}>
-                                <View style={{
-                                    // backgroundColor:'pink'
-                                }}>
-                                    <WireframeCuboid height={dims[2].value === '0' ? 1.5 :parseFloat(dims[2].value)} width={dims[0].value === '0' ? 3 :parseFloat(dims[0].value)} depth={dims[1].value === '0' ? 2 :parseFloat(dims[1].value)}/>
-                                </View>
-                            </View>
-
                         </View>
+                        <CubeThing dims={dims} setTriggerAnim={setTriggerAnim} setDims={setDims} triggerAnim={triggerAnim}/>
                     </ImageBackground>
                 </View>
             </TouchableWithoutFeedback>
@@ -301,6 +321,7 @@ export default function HomeScreen() {
                                         id: 0
                                     }
                                     console.log(newRoom)
+                                    setTriggerAnim(true)
                                     setName('')
                                     setNameModal(false)
                                 }} variant={'glass'}>

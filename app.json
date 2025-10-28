@@ -9,6 +9,10 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to find and connect to nearby devices.",
+        "NSBluetoothPeripheralUsageDescription": "This app needs Bluetooth access to communicate with nearby devices."
+      },
       "supportsTablet": true,
       "bundleIdentifier": "com.rufflesteels.techappnew"
     },
@@ -40,7 +44,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "react-native-ble-plx"
     ],
     "experiments": {
       "typedRoutes": true,

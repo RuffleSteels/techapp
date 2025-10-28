@@ -1,7 +1,7 @@
-import React from "react";
+import React, {useCallback} from "react";
 import {ImageBackground, StyleSheet, Text, View} from "react-native";
 import {GlassView} from "expo-glass-effect";
-import {styles} from "./theme";
+import {styles} from "@/lib/theme";
 // @ts-ignore
 import Pod from "@/assets/images/pod.svg"
 import {Button, Host} from '@expo/ui/swift-ui';
@@ -9,9 +9,39 @@ import {Button, Host} from '@expo/ui/swift-ui';
 import {glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
 import {useRouter} from "expo-router";
 import {IconSymbol} from "@/expo-template-default-main/components/ui/icon-symbol";
+import {loadData, saveData} from "@/lib/utils";
+import {useFocusEffect} from '@react-navigation/native'; // or 'expo-router'
+
+type Device = {
+    name: string;
+    frequency: number;
+    id: number;
+};
 
 export default function HomeScreen() {
+    const [hidden, setHidden] = React.useState(false);
     const router = useRouter();
+    const [devices, setDevices] = React.useState<Device[]>([])
+    useFocusEffect(
+        useCallback(() => {
+            const init = async () => {
+                const devices = await loadData('devices');
+
+                if (!devices) {
+                    const d= [{id:0, currentId: -1, currentMode: -1,name:'Den',frequency:100}]
+                    await saveData('devices', d);
+                    setDevices(d);
+
+                } else {
+                    setDevices(devices);
+                }
+
+
+                setHidden(false)
+            };
+            init();
+        }, [])
+    );
 
     return (
         <View style={styles.container}>
@@ -50,66 +80,76 @@ export default function HomeScreen() {
                     <View style={{
                         gap: 16
                     }}>
-                        <GlassView style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
-                                   glassEffectStyle="clear">
-                            <View style={[localStyles.glassBoxBox]}>
-                                <Host style={{
-                                    width: '100%',
-                                    height: '100%'
-                                }}>
-                                    <Button
-                                        onPress={() => {
-                                            router.push({pathname:'/device', params: {id:'0'}})
-                                        }}
-                                        variant="plain"
-                                        modifiers={[
-                                            glassEffect({
-                                                glass: {
-                                                    variant: 'identity',
-                                                    interactive: true,
-                                                },
-                                                shape: 'rectangle',
-                                            }),
-                                        ]}
-                                    >
-                                        <View style={[{
+                        {
+                            devices.map((item, i) => (
+                                <GlassView key={i} style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
+                                           glassEffectStyle="clear">
+                                    <View style={[localStyles.glassBoxBox]}>
+                                        <Host style={{
                                             width: '100%',
-                                            height: '100%',
-                                            flexDirection: 'row',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            paddingHorizontal: 16
-                                        }, localStyles.deviceItemOuterOuter]}>
-                                            <View style={localStyles.deviceItemDetails}>
-                                                <Pod style={
-                                                    {alignSelf: "center"}
-                                                } height={'90%'}/>
-                                                <View style={localStyles.deviceItemStuff}>
-                                                    <View>
-                                                        <Text style={[localStyles.text, localStyles.headline]}>Den
-                                                            1</Text>
-                                                        <Text
-                                                            style={[localStyles.text, localStyles.subheadline, localStyles.greyed]}>Acoustic
-                                                            Pod</Text>
+                                            height: '100%'
+                                        }}>
+                                            <Button
+                                                onPress={() => {
+
+                                                    router.push({pathname: '/device', params: {id: '0'}})
+                                                    setTimeout(() => setHidden(true), 100)
+                                                }}
+                                                variant="plain"
+                                                modifiers={[
+                                                    glassEffect({
+                                                        glass: {
+                                                            variant: 'identity',
+                                                            interactive: true,
+                                                        },
+                                                        shape: 'rectangle',
+                                                    }),
+                                                ]}
+                                            >
+                                                <View style={[{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    flexDirection: 'row',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    paddingHorizontal: 16
+                                                }, localStyles.deviceItemOuterOuter]}>
+                                                    <View style={localStyles.deviceItemDetails}>
+                                                        <Pod style={
+                                                            {alignSelf: "center"}
+                                                        } height={'90%'}/>
+                                                        <View style={localStyles.deviceItemStuff}>
+                                                            <View>
+                                                                <Text style={[localStyles.text, localStyles.headline, {
+                                                                    // color: hidden ? '#afafaf' : 'white'
+                                                                }]}>{hidden ? '-'.repeat(item.name.length) : item.name}</Text>
+                                                                <Text
+                                                                    style={[localStyles.text, localStyles.subheadline, localStyles.greyed, {
+                                                                        // color: hidden ? '#afafaf' : 'white'
+                                                                    }]}>{hidden ? '------------' : 'Acoustic Pod'}</Text>
+                                                            </View>
+
+
+                                                            <GlassView style={localStyles.hertzTag}>
+                                                                <IconSymbol size={28} color={'white'}
+                                                                            name="waveform.path"/>
+                                                                <Text
+                                                                    style={[localStyles.text, localStyles.footnote]}>{hidden ? '-----' : item.frequency.toFixed(1)}Hz</Text>
+                                                            </GlassView>
+                                                        </View>
+
                                                     </View>
-
-
-                                                    <GlassView style={localStyles.hertzTag}>
-                                                        <IconSymbol size={28} color={'white'} name="waveform.path"/>
-                                                        <Text
-                                                            style={[localStyles.text, localStyles.footnote]}>132.7Hz</Text>
-                                                    </GlassView>
+                                                    <IconSymbol style={{}} size={30} name={'chevron.forward'}
+                                                                color={'white'}/>
                                                 </View>
 
-                                            </View>
-                                            <IconSymbol style={{}} size={30} name={'chevron.forward'} color={'white'}/>
-                                        </View>
 
-
-                                    </Button>
-                                </Host>
-                            </View>
-                        </GlassView>
+                                            </Button>
+                                        </Host>
+                                    </View>
+                                </GlassView>
+                            ))
+                        }
 
                         <GlassView style={[localStyles.glassBox, localStyles.deviceItemOuterOuter]}
                                    tintColor={'rgba(50,50,50,.7)'} glassEffectStyle="clear">

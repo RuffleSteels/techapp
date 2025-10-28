@@ -1,11 +1,10 @@
 import React, {useEffect, useRef, useState} from "react";
 import {Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
 import * as Haptics from 'expo-haptics';
-import {styles} from "./(tabs)/theme";
-import {Stack} from "expo-router";
+import {styles} from "@/lib/theme";
+import {Stack, useLocalSearchParams} from "expo-router";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useLocalSearchParams } from "expo-router";
 
 import {GlassView} from "expo-glass-effect";
 import {foregroundStyle, glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
@@ -14,6 +13,7 @@ import {useHeaderHeight} from '@react-navigation/elements';
 // @ts-ignore
 import Graph from "@/assets/images/graph.svg"
 import {IconSymbol} from "@/expo-template-default-main/components/ui/icon-symbol";
+import {loadData, saveData} from "@/lib/utils";
 
 
 const presetss = [
@@ -163,11 +163,6 @@ function RoomCard({
                                 style={[localStyles.text, localStyles.body, currentMode === 1 && item.id === currentId && {fontWeight: '600'}]}>
                                 {item.name}
                             </Text>
-                            {/*<IconSymbol style={{*/}
-                            {/*    textAlign: 'center',*/}
-                            {/*    bottom: 0,*/}
-                            {/*    marginHorizontal:4*/}
-                            {/*}} size={20} name="chevron.right" color="white"  />*/}
                         </View>
 
                         <View style={{flexDirection: 'row', gap: 24, justifyContent: 'space-between'}}>
@@ -208,24 +203,10 @@ function toWords(num: number): string {
     }
     return ''
 }
-const saveData = async (name, data) => {
-    try {
-        await AsyncStorage.setItem(name, JSON.stringify(data));
-    } catch (e) {
-        console.error('Failed to save profile', e);
-    }
-};
-const loadData = async (type: string) => {
-    try {
-        const json = await AsyncStorage.getItem(type);
-        return json ? JSON.parse(json) : null;
-    } catch (e) {
-        console.error('Failed to load profile', e);
-        return null;
-    }
-};
+
+
 export default function Pairing() {
-    const { id } = useLocalSearchParams();
+    const {id} = useLocalSearchParams();
     const [devices, setDevices] = useState<any[]>([]);
     const [deviceName, setDeviceName] = useState('');
     const [presets, setPresets] = useState<Preset[]>([]);
@@ -243,11 +224,17 @@ export default function Pairing() {
     useEffect(() => {
         const init = async () => {
             // await saveData('devices', [{id:0, currentId: -1, currentMode: -1,name:'Den',frequency:100}]);
-            // await saveData('presets', presetss)s
+            // await saveData('presets', presetss)
             // await saveData('rooms', roomss)
-            const storedDevices = (await loadData('devices')) || [{id:0, currentId: -1, currentMode: -1,name:'Den',frequency:100}];
-            const storedRooms = (await loadData('rooms')) || presetss;
-            const storedPresets = (await loadData('presets')) || roomss;
+            const storedDevices = (await loadData('devices')) || [{
+                id: 0,
+                currentId: -1,
+                currentMode: -1,
+                name: 'Den',
+                frequency: 100
+            }];
+            const storedRooms = (await loadData('rooms')) || roomss;
+            const storedPresets = (await loadData('presets')) || presetss;
 
             setDevices(storedDevices);
             setRooms(storedRooms);
@@ -297,7 +284,7 @@ export default function Pairing() {
             setDevices(prev => {
                 if (!Array.isArray(prev)) return [];
                 return prev.map(item =>
-                    item.id === parsedId ? { ...item, name: deviceName } : item
+                    item.id === parsedId ? {...item, name: deviceName} : item
                 );
             });
         }
@@ -313,7 +300,7 @@ export default function Pairing() {
             setDevices(prev => {
                 if (!Array.isArray(prev)) return [];
                 return prev.map(item =>
-                    item.id === parsedId ? { ...item, frequency: currentFrequency } : item
+                    item.id === parsedId ? {...item, frequency: currentFrequency} : item
                 );
             });
         }
@@ -330,7 +317,7 @@ export default function Pairing() {
             setDevices(prev => {
                 if (!Array.isArray(prev)) return [];
                 return prev.map(item =>
-                    item.id === parsedId ? { ...item, currentMode: currentMode } : item
+                    item.id === parsedId ? {...item, currentMode: currentMode} : item
                 );
             });
         }
@@ -346,7 +333,7 @@ export default function Pairing() {
             setDevices(prev => {
                 if (!Array.isArray(prev)) return [];
                 return prev.map(item =>
-                    item.id === parsedId ? { ...item, currentId: currentId } : item
+                    item.id === parsedId ? {...item, currentId: currentId} : item
                 );
             });
         }
@@ -362,7 +349,7 @@ export default function Pairing() {
             setDevices(prev => {
                 if (!Array.isArray(prev)) return [];
                 return prev.map(item =>
-                    item.id === parsedId ? { ...item, currentDimension: currentDimension } : item
+                    item.id === parsedId ? {...item, currentDimension: currentDimension} : item
                 );
             });
         }
@@ -475,6 +462,7 @@ export default function Pairing() {
                                 headerLargeStyle: {backgroundColor: "transparent"},
                                 headerBackButtonDisplayMode: 'minimal',
                                 title: 'W',
+
                                 headerRight: () => (
                                     deviceNameEdit ? <View style={{flexDirection: 'row', gap: 12}}>
                                             <Host><Button onPress={() => {
