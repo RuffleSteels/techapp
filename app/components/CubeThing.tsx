@@ -21,7 +21,10 @@ function findFirstMissingId(items: Room[]): number {
 }
 
 interface CubeThingProps {
-    setDims: React.Dispatch<React.SetStateAction<Record<string, any>>>;
+    setDims: React.Dispatch<React.SetStateAction<{
+        name: string;
+        value: string;
+    }[]>>;
     triggerAnim: boolean;
     setTriggerAnim: React.Dispatch<React.SetStateAction<boolean>>;
     dims: Record<string, any>;
@@ -340,7 +343,22 @@ export default function CubeThing({ setDims, triggerAnim, setTriggerAnim, dims }
                                     await saveData('rooms', rooms)
 
                                     setTimeout(() => {
-                                        setDims({0:0,1:0,2:0})
+                                        setDims([
+                                                {
+                                                    name: 'Length',
+                                                    value: '0'
+                                                },
+                                                {
+                                                    name: 'Width',
+                                                    value: '0'
+                                                },
+                                                {
+                                                    name: 'Height',
+                                                    value: '0'
+                                                }
+                                            ]
+
+                                        )
                                         setName('')
                                     }, 100)
 

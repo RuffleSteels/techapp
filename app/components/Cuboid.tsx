@@ -3,7 +3,6 @@ import React, {useEffect, useMemo, useRef, useState} from "react";
 import Svg, {Line} from "react-native-svg";
 
 const deg2rad = (deg: number) => (deg * Math.PI) / 180;
-
 export default function WireframeCuboid({
                                             width = 120,
                                             height = 100,
@@ -12,10 +11,21 @@ export default function WireframeCuboid({
                                             rotationSpeedX = 0,
                                             rotationSpeedY = 0,
                                             rotationSpeedZ = 0,
-                                            targetAngleX = undefined,
-                                            targetAngleY = undefined,
-                                            targetAngleZ = undefined,
-                                        }) {
+                                            targetAngleX,
+                                            targetAngleY,
+                                            targetAngleZ,
+                                        }: {
+    width?: number;
+    height?: number;
+    depth?: number;
+    size?: number;
+    rotationSpeedX?: number;
+    rotationSpeedY?: number;
+    rotationSpeedZ?: number;
+    targetAngleX?: number | undefined;
+    targetAngleY?: number | undefined;
+    targetAngleZ?: number | undefined;
+}) {
     const [angle, setAngle] = useState({x: 20, y: 0, z: 0});
     const raf = useRef<number>(null);
 
