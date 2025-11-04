@@ -1,60 +1,65 @@
 import React, {useEffect, useState} from "react";
-import {ActivityIndicator, ImageBackground, Platform, ScrollView, StyleSheet, Text, View} from "react-native";
-import {styles} from "@/lib/theme";
+import {ActivityIndicator, Alert, ImageBackground, Platform, ScrollView, StyleSheet, Text, View} from "react-native";
+import {styles} from "../lib/theme";
 import {useRouter} from "expo-router";
 import {Button, Host} from '@expo/ui/swift-ui';
 import {GlassView} from "expo-glass-effect";
 import {BleManager} from "react-native-ble-plx";
-import {IconSymbol} from "@/lib/ui/icon-symbol";
+import {IconSymbol} from "../lib/ui/icon-symbol";
+import { encode as btoa, decode as atob } from "base-64";
 // @ts-ignore
-import Pod from "@/assets/images/pod.svg"
+// import Pod from "@/assets/images/pod.svg"
+import Pod from "../assets/images/pod.svg";
 import {LinearGradient} from 'expo-linear-gradient';
 import {BlurView} from "expo-blur";
 import MaskedView from "@react-native-masked-view/masked-view";
+import manager from "@/app/components/bleManager";
+import {Device, Preset} from "@/lib/types";
+import {loadData, saveData} from "@/lib/utils";
+import {useBLE} from "@/lib/BLEProvider";
+
+function findFirstMissingId(items: Device[]): number {
+    const ids = new Set(items.map(item => item.id));
+    let i = 0;
+    while (ids.has(i)) {
+        i++;
+    }
+    return i;
+}
 
 export default function Pairing() {
     const router = useRouter();
     const [devices, setDevices] = useState<any[]>([]);
     const [failed, setFailed] = useState(false)
+    const [log, setLog] = useState([]);
+    const { connectDevice, sendMessage } = useBLE();
+    const MY_COMPANY_ID = 0xFF01; // 16-bit ID
+    const logMsg = (msg) => setLog(prev => [...prev, msg]);
 
     useEffect(() => {
-        // iOS Simulator detection
-        // Platform.OS === 'ios' && !Platform.isTV && !navigator.product?.includes('iPhone')
-        const isIosSimulator =
-            Platform.OS === 'ios' &&
-            // @ts-ignore
-            typeof navigator !== 'undefined' &&
-            // @ts-ignore
-            navigator.product &&
-            // @ts-ignore
-            !navigator.product.includes('iPhone');
-
-        // if (Platform.OS === 'ios' && !Platform.isTV && isIosSimulator) {
-        //     // Running on iOS simulator, skip BLE scan and use dummy data
-        //     setDevices([]); // Optionally clear first
-        //     const timeout = setTimeout(() => {
-        //         setDevices([
-        //             { id: 'sim-1', name: 'Simulated Acoustic Pod', rssi: -50 },
-        //             { id: 'sim-2', name: 'Fake Pod 2', rssi: -60 },
-        //             { id: 'sim-2', name: 'Fake Pod 2', rssi: -60 },
-        //             { id: 'sim-2', name: 'Fake Pod 2', rssi: -60 },
-        //         ]);
-        //     }, 1000);
-        //     return () => clearTimeout(timeout);
-        // } else {
-        // Real device BLE scan logic
-        const manager = new BleManager();
-
-        const startScan = async () => {
+        const startScan = () => {
+            logMsg("🔍 Scanning for XIAO-BLE-SECURE...");
             setDevices([]);
 
             manager.startDeviceScan(null, null, (error, device) => {
                 if (error) {
-                    console.error("Scan error:", error);
+                    console.error(error);
                     return;
                 }
 
-                if (device && device.name) {
+                if (!device || !device.manufacturerData) return;
+
+                const decoded = atob(device.manufacturerData);
+                const bytes = new Uint8Array(decoded.length);
+                for (let i = 0; i < decoded.length; i++) {
+                    bytes[i] = decoded.charCodeAt(i);
+                }
+
+                // Read first 2 bytes as little-endian
+                const companyId = bytes[0] | (bytes[1] << 8);
+
+                if (companyId === MY_COMPANY_ID) {
+                    logMsg(`📡 Found device: ${device.name ?? device.id}`);
                     setDevices(prev => {
                         if (prev.find(d => d.id === device.id)) return prev;
                         return [...prev, device];
@@ -62,9 +67,10 @@ export default function Pairing() {
                 }
             });
 
-            // stop scan after 10 seconds
+            // Stop after 10 seconds
             setTimeout(() => {
                 manager.stopDeviceScan();
+                logMsg("🛑 Scan stopped");
             }, 10000);
         };
 
@@ -80,22 +86,44 @@ export default function Pairing() {
             try {
                 manager.stopDeviceScan();
                 subscription.remove();
-
-                // ✅ Delay destroy slightly to avoid async race crash
-                setTimeout(() => {
-                    manager.destroy();
-                }, 500);
             } catch (e) {
                 console.warn("BLE cleanup error:", e);
             }
         };
         // }
     }, []);
-    // @ts-ignore
+
+    const connectToDevice = async (device) => {
+        try {
+            const dev =   await connectDevice(device)
+
+            if (dev) {
+                logMsg("✅ Connected and services discovered");
+                // const response = await sendMessage("GET_FREQ", dev);
+
+                const d = {
+                    id: findFirstMissingId(devices), currentDimension: Object.fromEntries(
+                        ((await loadData('rooms')) || []).map(room => [room.id, 0]) // 0 = length
+                    ), currentId: -1, deviceId: device.id, currentMode: -1, name: device.name, frequency: 100
+                } as Device
+
+                const oldDevices = await loadData('devices')
+                oldDevices.push(d)
+
+                await saveData('devices', oldDevices)
+
+                router.back()
+            }
+        } catch (e) {
+            console.error(e);
+            logMsg("❌ Connection failed");
+        }
+    };
+
     return (
         <View style={styles.container}>
             <ImageBackground
-                source={require("@/assets/images/gradient.png")}
+                source={require("../assets/images/gradient.png")}
                 style={[styles.background, {}]}
                 //@ts-ignore
                 imageStyle={{
@@ -129,7 +157,9 @@ export default function Pairing() {
                             {
                                 devices.map((item, i) => (
 
-                                    <GlassView key={i} style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
+                                    <GlassView onTouchEnd={async () => {
+                                        await connectToDevice(item)
+                                    }} key={i} style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
                                                glassEffectStyle="clear">
                                         <View style={{
                                             flexDirection: 'row',

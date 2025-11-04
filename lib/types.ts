@@ -5,6 +5,7 @@ export interface Device {
     frequency: number;
     currentMode: number;
     currentId: number;
+    deviceId: string;
 
 }
 export type Room = {

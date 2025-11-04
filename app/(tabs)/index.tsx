@@ -1,49 +1,81 @@
-import React, {useCallback} from "react";
+import React, {useCallback, useEffect} from "react";
 import {ImageBackground, StyleSheet, Text, View} from "react-native";
 import {GlassView} from "expo-glass-effect";
-import {styles} from "@/lib/theme";
+import {styles} from "../../lib/theme";
 // @ts-ignore
-import Pod from "@/assets/images/pod.svg"
+// import Pod from "@/assets/images/pod.svg"
+import Pod from "../../assets/images/pod.svg";
 import {Button, Host} from '@expo/ui/swift-ui';
 
 import {glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
 import {useRouter} from "expo-router";
-import {IconSymbol} from "@/lib/ui/icon-symbol";
-import {loadData, saveData} from "@/lib/utils";
+import {IconSymbol} from "../../lib/ui/icon-symbol";
+import {loadData, saveData} from "../../lib/utils";
 import {useFocusEffect} from '@react-navigation/native';
-import {Device} from "@/lib/types";
+import {Device} from "../../lib/types";
+import {useBLE} from "@/lib/BLEProvider";
+
 
 
 export default function HomeScreen() {
     const [hidden, setHidden] = React.useState(false);
     const router = useRouter();
+    const {sendMessage, connectedDevice, hasTried} = useBLE()
+    const [hasAttempted, setHasAttempted] = React.useState(false)
     const [devices, setDevices] = React.useState<Device[]>([])
+    const [devicesLoaded, setDevicesLoaded] = React.useState(false);
+
     useFocusEffect(
         useCallback(() => {
             const init = async () => {
                 const devices = await loadData('devices');
-
-                if (!devices) {
-                    const d = [{id: 0, currentId: -1, currentMode: -1, name: 'Den', frequency: 100}] as Device[]
-                    await saveData('devices', d);
-                    setDevices(d);
-
-                } else {
-                    setDevices(devices);
-                }
-
-
-                setHidden(false)
+                if (devices) setDevices(devices);
+                setHidden(false);
+                setDevicesLoaded(true); // ✅ mark ready
             };
             init();
         }, [])
+    );
+    useFocusEffect(
+        useCallback(() => {
+            if (!devicesLoaded) return;
+
+            const init = async () => {
+                if (!hasTried) {
+                    console.log("⏳ Waiting for BLE attempt...");
+                    return; // exit for now — will rerun when connectedDevice changes
+                }
+
+                console.log("✅ BLE attempted:", connectedDevice?.name);
+
+                if (devices) {
+                    const connectedDeviceItem = devices.find(d => d.deviceId === connectedDevice?.id)
+
+
+                    if (connectedDeviceItem) {
+                        const frequency = await sendMessage('GET_FREQ')
+                        setDevices((prevDevices) => {
+                            return prevDevices.map((d) =>
+                                d.deviceId === connectedDevice.id
+                                    ? { ...d, frequency: parseFloat(frequency) }
+                                    : d
+                            );
+                        });
+                    }
+                }
+
+                setHasAttempted(true)
+                setDevicesLoaded(false)
+            };
+            init();
+        }, [hasTried,devicesLoaded, connectedDevice])
     );
 
     return (
         <View style={styles.container}>
 
             <ImageBackground
-                source={require("@/assets/images/gradient.png")}
+                source={require("../../assets/images/gradient.png")}
                 style={styles.background}
                 //@ts-ignore
                 imageStyle={{
@@ -118,11 +150,11 @@ export default function HomeScreen() {
                                                             <View>
                                                                 <Text style={[localStyles.text, localStyles.headline, {
                                                                     // color: hidden ? '#afafaf' : 'white'
-                                                                }]}>{hidden ? '-'.repeat(item.name.length) : item.name}</Text>
+                                                                }]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
                                                                 <Text
                                                                     style={[localStyles.text, localStyles.subheadline, localStyles.greyed, {
                                                                         // color: hidden ? '#afafaf' : 'white'
-                                                                    }]}>{hidden ? '------------' : 'Acoustic Pod'}</Text>
+                                                                    }]}>{false ? '------------' : 'Acoustic Pod'}</Text>
                                                             </View>
 
 
@@ -130,7 +162,7 @@ export default function HomeScreen() {
                                                                 <IconSymbol size={28} color={'white'}
                                                                             name="waveform.path"/>
                                                                 <Text
-                                                                    style={[localStyles.text, localStyles.footnote]}>{hidden ? '-----' : item.frequency.toFixed(1)}Hz</Text>
+                                                                    style={[localStyles.text, localStyles.footnote]}>{hidden || !item?.frequency || !hasAttempted ? '-----' : item.frequency.toFixed(1)}Hz</Text>
                                                             </GlassView>
                                                         </View>
 

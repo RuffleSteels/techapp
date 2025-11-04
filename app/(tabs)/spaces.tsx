@@ -10,7 +10,7 @@ import {
     TouchableWithoutFeedback,
     View
 } from "react-native";
-import {styles} from "@/lib/theme";
+import {styles} from "../../lib/theme";
 import {Button, Host} from "@expo/ui/swift-ui";
 import {glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
 import {GlassView} from "expo-glass-effect";
@@ -73,7 +73,7 @@ export default function HomeScreen() {
                 <View style={styles.container}>
 
                     <ImageBackground
-                        source={require("@/assets/images/gradient.png")}
+                        source={require("../../assets/images/gradient.png")}
                         style={styles.background}
                         //@ts-ignore
                         imageStyle={{

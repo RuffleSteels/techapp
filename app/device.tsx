@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from "react";
 import {Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
 import * as Haptics from 'expo-haptics';
-import {styles} from "@/lib/theme";
+import {styles} from "../lib/theme";
 import {Stack, useLocalSearchParams, useRouter} from "expo-router";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
 
@@ -11,9 +11,11 @@ import {useHeaderHeight} from '@react-navigation/elements';
 
 // @ts-ignore
 import Graph from "@/assets/images/graph.svg"
-import {IconSymbol} from "@/lib/ui/icon-symbol";
-import {loadData, saveData} from "@/lib/utils";
-import {Preset, Room} from "@/lib/types";
+import {IconSymbol} from "../lib/ui/icon-symbol";
+import {loadData, saveData} from "../lib/utils";
+import {Preset, Room} from "../lib/types";
+import manager from "@/app/components/bleManager";
+import {useBLE} from "@/lib/BLEProvider";
 
 
 const presetss = [
@@ -200,9 +202,13 @@ export default function Pairing() {
 
     const [devices, setDevices] = useState<any[]>([]);
     const [deviceName, setDeviceName] = useState('');
+    const [deviceId, setDeviceId] = useState('');
     const [presets, setPresets] = useState<Preset[]>([]);
     const [rooms, setRooms] = useState<Room[]>([]);
-    const [currentFrequency, setCurrentFrequency] = useState(0);
+
+    const {sendMessage, connectedDevice: cd} = useBLE();
+
+    const [currentFrequency, _setCurrentFrequency] = useState(0);
     const [currentMode, setCurrentMode] = useState(-1);
     const [currentId, setCurrentId] = useState(-1);
     const [currentDimension, setCurrentDimension] = useState(
@@ -211,13 +217,28 @@ export default function Pairing() {
         )
     );
     const hasLoaded = useRef(false);
+    const setCurrentFrequency = async (newFreq: number, isFirst: boolean) => {
+        if (isFirst || currentFrequency === newFreq) {
+            _setCurrentFrequency(newFreq);
+            return;
+        }
+        try {
+            const response = await sendMessage(`SET_FREQ:${newFreq}`);
 
+            if (response === `OK`) {
+                _setCurrentFrequency(newFreq);
+                console.log(`✅ Frequency set to ${newFreq}`);
+            } else {
+                console.warn(`❌ Device did not accept frequency. Keeping ${currentFrequency}`);
+            }
+        } catch (e) {
+            console.error("❌ Failed to set frequency:", e);
+        }
+    };
     useEffect(() => {
         const init = async () => {
-            // await saveData('devices', [{id:0, currentId: -1, currentMode: -1,name:'Den',frequency:100}]);
-            // await saveData('presets', presetss)
-            // await saveData('rooms', roomss)
-            const storedDevices = (await loadData('devices')) || [{
+            let storedDevices = (await loadData('devices'))
+                || [{
                 id: 0,
                 currentId: -1,
                 currentMode: -1,
@@ -226,26 +247,53 @@ export default function Pairing() {
             }];
             const storedRooms = (await loadData('rooms')) || roomss;
             const storedPresets = (await loadData('presets')) || presetss;
+            const index = parseInt(id as string);
+
+            const freq = await sendMessage('GET_FREQ')
+            if (freq && parseFloat(freq)) {
+                if (parseFloat(freq) !== storedDevices[index]?.frequency) {
+                    setCurrentId(-1)
+                    setCurrentMode(-1)
+                }
+
+                storedDevices = storedDevices.map((d, index) =>
+                    d.deviceId === cd.id
+                        ? {
+                            ...d,
+                            frequency: parseFloat(freq),
+                            ...(parseFloat(freq) !== storedDevices[index]?.frequency
+                                ? {currentId: -1, currentMode: -1}
+                                : {}),
+                        }
+                        : d
+                );
+            }
+
 
             setDevices(storedDevices);
             setRooms(storedRooms);
             setPresets(storedPresets);
 
-            const index = parseInt(id as string);
+
             if (!isNaN(index) && storedDevices[index]) {
                 setDeviceName(storedDevices[index]?.name ?? '');
-                setCurrentFrequency(storedDevices[index]?.frequency ?? '');
                 setCurrentId(storedDevices[index]?.currentId ?? -1);
                 setCurrentMode(storedDevices[index]?.currentMode ?? -1);
+                //  else {
+                //     console.log('d')
+                    _setCurrentFrequency(storedDevices[index]?.frequency ?? '');
+                // }
+
                 setCurrentDimension(storedDevices[index]?.currentDimension ?? {});
+                setDeviceId(storedDevices[index]?.deviceId ?? '');
             } else {
                 setDeviceName('');
-                setCurrentFrequency(0);
+                console.log('e')
+                setCurrentFrequency(0, true);
                 setCurrentId(-1);
                 setCurrentMode(-1);
             }
 
-            // ✅ Mark as initialized
             hasLoaded.current = true;
         };
 
@@ -345,6 +393,7 @@ export default function Pairing() {
             });
         }
     }, [currentDimension, id]);
+    const { disconnectDevice, connectedDevice } = useBLE();
 
     const [editModal, setEditModal] = useState(-1);
     const [presetPopupWindow, setPresetPopupWindow] = useState(0);
@@ -430,7 +479,7 @@ export default function Pairing() {
                 <View style={styles.container}>
 
                     <ImageBackground
-                        source={require("@/assets/images/gradient.png")}
+                        source={require("../assets/images/gradient.png")}
                         style={[styles.background, {}]}
                         // @ts-ignore
                         imageStyle={[{
@@ -520,7 +569,18 @@ export default function Pairing() {
                                                     }} systemImage={'pencil'}>
                                                         Rename
                                                     </Button>
-                                                    <Button role={'destructive'} modifiers={[
+                                                    <Button onPress={async () => {
+                                                        if (connectedDevice && connectedDevice.id === deviceId) {
+                                                            disconnectDevice()
+                                                        }
+                                                        setDevices(prev => {
+                                                            return prev.filter(item => item.id !== parseInt(id))
+                                                        })
+                                                        await saveData('devices', devices)
+
+                                                        setCurrentId(-1)
+                                                        router.back()
+                                                    }} role={'destructive'} modifiers={[
                                                         foregroundStyle('red')
                                                     ]} systemImage={'trash'}>
                                                         Delete
@@ -590,7 +650,7 @@ export default function Pairing() {
                                                 </View>
                                             ) : (
                                                 <Text style={[localStyles.text, {fontSize: 36, fontWeight: '800'}]}>
-                                                    {currentFrequency.toFixed(1)}Hz
+                                                    {currentFrequency ? currentFrequency.toFixed(1) : ''}Hz
                                                 </Text>
                                             )
                                         }
@@ -889,7 +949,7 @@ export default function Pairing() {
                                                                                                 name="waveform.path"
                                                                                                 color={currentMode === 0 && item.id === currentId ? '#d1d1d1' : '#afafaf'}/>
                                                                                     <Text
-                                                                                        style={[localStyles.text, localStyles.subheadline, {color: currentMode === 0 && item.id === currentId ? '#d1d1d1' : '#afafaf'}]}>{item.frequency.toFixed(1)}Hz</Text>
+                                                                                        style={[localStyles.text, localStyles.subheadline, {color: currentMode === 0 && item.id === currentId ? '#d1d1d1' : '#afafaf'}]}>{item.frequency ? item.frequency.toFixed(1) : ''}Hz</Text>
                                                                                 </View>
                                                                             </View>
 
@@ -1049,7 +1109,7 @@ export default function Pairing() {
                             {
                                 presetPopupWindow === 0 ? (
                                     <Text style={[localStyles.text, localStyles.footnote]}>
-                                        Frequency: {currentFrequency.toFixed(1)}Hz
+                                        Frequency: {currentFrequency ? currentFrequency.toFixed(1) : ''}Hz
                                     </Text>
                                 ) : null
                             }

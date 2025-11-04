@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "techappnew",
-    "slug": "techappnew",
+    "name": "techappnewdev",
+    "slug": "techappnewdev",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "techappnew",
+    "scheme": "techappnewdev",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -14,18 +14,7 @@
         "NSBluetoothPeripheralUsageDescription": "This app needs Bluetooth access to communicate with nearby devices."
       },
       "supportsTablet": true,
-      "bundleIdentifier": "com.rufflesteels.techappnew"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
-      },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.rufflesteels.techappnew"
+      "bundleIdentifier": "com.rufflesteels.techappnewdev"
     },
     "web": {
       "output": "static",
@@ -45,11 +34,20 @@
           }
         }
       ],
-      "react-native-ble-plx"
+      "react-native-ble-plx",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
+    },
+    "android": {
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ],
+      "package": "com.rufflesteels.techappnewdev"
     }
   }
 }

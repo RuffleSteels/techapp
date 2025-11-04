@@ -7,9 +7,9 @@ import {BlurView} from "expo-blur";
 import {Button, Host} from "@expo/ui/swift-ui";
 import * as Haptics from "expo-haptics";
 import {glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
-import {loadData, saveData} from "@/lib/utils";
+import {loadData, saveData} from "../../lib/utils";
 import {useAnimation} from "@/app/components/AnimationContext";
-import {Device, Room} from "@/lib/types";
+import {Device, Room} from "../../lib/types";
 
 function findFirstMissingId(items: Room[]): number {
     const ids = new Set(items.map(item => item.id));
