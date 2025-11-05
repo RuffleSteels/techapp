@@ -17,7 +17,8 @@ import manager from "@/app/components/bleManager";
 import {Device, Preset} from "@/lib/types";
 import {loadData, saveData} from "@/lib/utils";
 import {useBLE} from "@/lib/BLEProvider";
-
+import {has} from "react-native-reanimated/lib/typescript/createAnimatedComponent/utils";
+// TODO when u go on the pairing screen, if its alreayd connected, it disconnects, to allow to scan for more devices.
 function findFirstMissingId(items: Device[]): number {
     const ids = new Set(items.map(item => item.id));
     let i = 0;
@@ -31,8 +32,10 @@ export default function Pairing() {
     const router = useRouter();
     const [devices, setDevices] = useState<any[]>([]);
     const [failed, setFailed] = useState(false)
+    const [pairing, setPairing] = useState(false)
     const [log, setLog] = useState([]);
-    const { connectDevice, sendMessage } = useBLE();
+    const { hasBonded,connectDevice, sendMessage, connectedDevice, disconnectDevice } = useBLE();
+    const [scanTrigger, setScanTrigger] = useState(0)
     const MY_COMPANY_ID = 0xFF01; // 16-bit ID
     const logMsg = (msg) => setLog(prev => [...prev, msg]);
 
@@ -41,8 +44,13 @@ export default function Pairing() {
             logMsg("🔍 Scanning for XIAO-BLE-SECURE...");
             setDevices([]);
 
+            if (connectedDevice) {
+                disconnectDevice()
+            }
+
             manager.startDeviceScan(null, null, (error, device) => {
                 if (error) {
+                    console.log('eek')
                     console.error(error);
                     return;
                 }
@@ -69,8 +77,11 @@ export default function Pairing() {
 
             // Stop after 10 seconds
             setTimeout(() => {
-                manager.stopDeviceScan();
-                logMsg("🛑 Scan stopped");
+                if (devices.length === 0) {
+                    manager.stopDeviceScan();
+                    logMsg("🛑 Scan stopped");
+                    setFailed(true)
+                }
             }, 10000);
         };
 
@@ -91,15 +102,22 @@ export default function Pairing() {
             }
         };
         // }
-    }, []);
+    }, [scanTrigger]);
 
     const connectToDevice = async (device) => {
         try {
-            const dev =   await connectDevice(device)
+            const oldDevices = await loadData('devices')
 
+            setPairing(true)
+            const dev = await connectDevice(device)
+            if (oldDevices && oldDevices.find(d => d.deviceId === device.id)) {
+                // const dev =   await connectDevice(device)
+                router.back();
+                setPairing(false)
+                return
+            }
             if (dev) {
                 logMsg("✅ Connected and services discovered");
-                // const response = await sendMessage("GET_FREQ", dev);
 
                 const d = {
                     id: findFirstMissingId(devices), currentDimension: Object.fromEntries(
@@ -107,7 +125,6 @@ export default function Pairing() {
                     ), currentId: -1, deviceId: device.id, currentMode: -1, name: device.name, frequency: 100
                 } as Device
 
-                const oldDevices = await loadData('devices')
                 oldDevices.push(d)
 
                 await saveData('devices', oldDevices)
@@ -119,6 +136,7 @@ export default function Pairing() {
             logMsg("❌ Connection failed");
         }
     };
+
 
     return (
         <View style={styles.container}>
@@ -228,6 +246,7 @@ export default function Pairing() {
                         // marginBottom: 52,
                         alignItems: 'center',
                         alignSelf: 'center',
+                        zIndex: 100
                     }}>
                         <View style={{
                             position: 'absolute',
@@ -259,10 +278,8 @@ export default function Pairing() {
                             </MaskedView>
                         </View>
                         {
-                            failed ?
-                                <View>
-
-                                </View>
+                            failed || pairing ?
+                                null
                                 :
                                 <View style={{
                                     flexDirection: 'row',
@@ -283,6 +300,7 @@ export default function Pairing() {
                             <View style={{
                                 gap: 16,
                                 width: '100%',
+                                paddingHorizontal: 12
                             }}>
                                 {failed && (
                                     <GlassView
@@ -297,7 +315,7 @@ export default function Pairing() {
                                             width: 0
                                         }
                                         ]}>
-                                            No pod found. Make sure the pod is powered on and that you are within 1m of
+                                            Can&#39;t see your pod? Make sure the pod is powered on and that you are within 1m of
                                             it.
                                         </Text>
                                     </GlassView>
@@ -310,7 +328,10 @@ export default function Pairing() {
                                         <Button
                                             role="default"
                                             variant="glass"
-                                            onPress={() => setFailed(false)}
+                                            onPress={() => {
+                                                setFailed(false)
+                                                setScanTrigger(t=>t+1)
+                                            }}
                                         >
                                             Try Again
                                         </Button>
@@ -332,6 +353,27 @@ export default function Pairing() {
                             </View>
                         </View>
                     </View>
+                    {
+                        pairing ? <View style={{
+                            position: 'absolute',
+                            width: '100%',
+                            height: '100%',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: 'rgba(0,0,0,0.9)',
+                            zIndex: 1000000000,
+                            gap: 24
+                        }}>
+                            <ActivityIndicator size="large" style={{}} color="#ffffff"/>
+                            <Text style={[localStyles.text, localStyles.body, localStyles.greyed, {
+                                // fontSize:
+                            }]}>
+                                Pairing...
+                            </Text>
+
+                        </View> : null
+                    }
+
                 </View>
             </ImageBackground>
         </View>

@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { BleManager, Device, Characteristic } from "react-native-ble-plx";
 import {loadData, saveData} from "@/lib/utils";
-
+import { useRouter, usePathname } from "expo-router";
 interface BLEContextType {
     manager: BleManager;
     connectedDevice: Device | null;
@@ -13,6 +13,8 @@ interface BLEContextType {
     connectDevice: (device: Device) => Promise<boolean>;
     sendMessage: (message: string, reqName?: string) => Promise<string | null>; // 👈 new
     hasTried: boolean;
+    hasBonded: number;
+    lastDevice: string;
 }
 
 const manager = new BleManager();
@@ -23,16 +25,20 @@ const BLEContext = createContext<BLEContextType | undefined>(undefined);
 export const BLEProvider = ({ children }) => {
     const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
     const [hasTried, setHasTried] = useState<boolean>(false);
-    const [rxSubscription, setRxSubscription] = useState<any>(null);
+    const [hasBonded, setHasBonded] = useState<number>(-1);
+    const [lastDevice, setLastDevice] = useState<string>(null);
+    // const [rxSubscription, setRxSubscription] = useState<any>(null);
+    const rxSubscription = useRef<any>(null);
+
     const logMsg = (...args: any[]) => console.log(...args);
     const pendingRequests = useRef(
         new Map<string, { resolve: (val: string | null) => void; timeoutId: NodeJS.Timeout }>()
     ).current;
-
+    const isManualDisconnect = useRef(false);
+    const router = useRouter();
+    const pathname = usePathname();
     // Auto-reconnect on app launch
     useEffect(() => {
-
-
         const tryReconnect = async () => {
             const devices = await loadData('devices');
             if (!devices || devices.length === 0) {
@@ -61,6 +67,14 @@ export const BLEProvider = ({ children }) => {
 
         return () => sub.remove();
     }, []);
+    const unsubscribeRx = () => {
+        if (rxSubscription.current) {
+            rxSubscription.current.remove();
+            // setRxSubscription(null);
+            rxSubscription.current = null;
+        }
+    };
+
     const subscribeToRx = (
         device: Device,
         serviceUUID: string,
@@ -68,7 +82,7 @@ export const BLEProvider = ({ children }) => {
         callback: (value: string) => void
     ) => {
         // If there’s already a live subscription, don’t create another
-        if (rxSubscription) {
+        if (rxSubscription.current) {
             console.log("⚠️ Already subscribed, skipping duplicate monitor");
             return;
         }
@@ -76,7 +90,7 @@ export const BLEProvider = ({ children }) => {
         const subscription = device.monitorCharacteristicForService(
             serviceUUID,
             charUUID,
-            (error, characteristic) => {
+            async (error, characteristic) => {
                 if (error) {
                     if (
                         error.errorCode === 201 || // DeviceDisconnected
@@ -84,10 +98,28 @@ export const BLEProvider = ({ children }) => {
                         error.message?.includes("disconnected") ||
                         error.message?.includes("cancelled")
                     ) {
-                        console.log("ℹ️ BLE monitor ended:", error.message);
+                        if (isManualDisconnect.current) {
+                            console.log("ℹ️ BLE manually disconnected:", error.message);
+                        } else {
+                            console.log("⚠️ BLE unexpectedly disconnected:", error.message);
+
+                        }
+                        unsubscribeRx();
+                        console.log(rxSubscription)
+                        isManualDisconnect.current = false;
+                        setConnectedDevice(null);
                         return;
                     }
-                    console.error("❌ BLE monitor error:", error);
+
+                    if (error.message?.toLowerCase().includes("characteristic")) {
+                        console.log('A characteristic error occurred: ')
+                        setHasBonded(0)
+                    }
+
+                    console.error("❌ BLE monitor error:", error.message);
+                    unsubscribeRx();
+                    console.log(rxSubscription)
+                    setConnectedDevice(null);
                     return;
                 }
 
@@ -98,30 +130,28 @@ export const BLEProvider = ({ children }) => {
             }
         );
 
-        setRxSubscription(subscription);
+        rxSubscription.current = subscription;
     };
 
     // Helper to clean up RX subscription
-    const unsubscribeRx = () => {
-        if (rxSubscription) {
-            rxSubscription.remove();
-            setRxSubscription(null);
-        }
-    };
 
-    const disconnectDevice = async () => {
-        if (connectedDevice) {
+    const disconnectDevice = async (cid = null) => {
+        if (connectedDevice || cid) {
+            isManualDisconnect.current = true; // 👈 mark it
+
             unsubscribeRx();
-            await manager.cancelDeviceConnection(connectedDevice.id);
+            await manager.cancelDeviceConnection(cid ? cid : connectedDevice.id);
             setConnectedDevice(null);
+             // reset for next time
 
             console.log("Disconnecting current device")
         }
     }
-    const connectDevice = async (device: Device): Promise<Device | null> => {        try {
+    const connectDevice = async (device: Device): Promise<Device | null> => {
+        try {
             logMsg(`🔗 Connecting to ${device.name}...`);
 
-            // 1️⃣ If already connected to same device, disconnect cleanly
+            // Clean up existing connection if needed
             if (connectedDevice && connectedDevice.id === device.id) {
                 logMsg("🔌 Already connected — resetting connection...");
                 unsubscribeRx();
@@ -129,40 +159,60 @@ export const BLEProvider = ({ children }) => {
                 setConnectedDevice(null);
             }
 
-            // 2️⃣ Ensure no leftover monitor from previous connection
             unsubscribeRx();
 
-            // 3️⃣ Connect fresh (⚠️ no autoConnect to prevent silent reconnections)
+            // Fresh connect (no auto-connect)
             const connected = await manager.connectToDevice(device.id, { autoConnect: false });
-            await connected.discoverAllServicesAndCharacteristics();
-            setConnectedDevice(connected);
+            await new Promise(res => setTimeout(res, 300));
 
+            try {
+                await connected.discoverAllServicesAndCharacteristics();
+                await connected.requestMTU(247).catch(() => {});
+            } catch (err) {
+                // 👉 This can happen if pairing fails or PIN is incorrect
+                logMsg("🔒 Secure connection failed during discovery — likely pairing/PIN issue");
+                console.error("Discovery error:", err);
+                await manager.cancelDeviceConnection(device.id).catch(() => {});
+                return null;
+            }
+
+            setConnectedDevice(connected);
             logMsg("✅ Connected and services discovered");
 
-            // 4️⃣ Subscribe once only
             const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
             const RX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
-        subscribeToRx(connected, UART_SERVICE_UUID, RX_CHAR_UUID, (value) => {
-            const trimmed = value.trim();
-            const [header, payload] = trimmed.split(":");
-            logMsg(`📥 RX: ${header} -> ${payload}`);
+            try {
+                subscribeToRx(connected, UART_SERVICE_UUID, RX_CHAR_UUID, (value) => {
+                    const trimmed = value.trim();
+                    const [header, payload] = trimmed.split(":");
+                    logMsg(`📥 RX: ${header} -> ${payload}`);
 
-            if (pendingRequests.has(header)) {
-                const { resolve, timeoutId } = pendingRequests.get(header)!;
-                clearTimeout(timeoutId);
-                pendingRequests.delete(header);
-                resolve(payload);
-            } else {
-                logMsg(`⚠️ No pending request for ${header} (maybe timed out)`);
+                    if (pendingRequests.has(header)) {
+                        const { resolve, timeoutId } = pendingRequests.get(header)!;
+                        clearTimeout(timeoutId);
+                        pendingRequests.delete(header);
+                        resolve(payload);
+                    } else {
+                        logMsg(`⚠️ No pending request for ${header} (maybe timed out)`);
+                    }
+                });
+            } catch (err) {
+                // 👉 Characteristic access failed — usually encryption/pairing issue
+                logMsg("❌ Failed to subscribe to characteristic — possibly incorrect PIN or security mismatch");
+                console.error("Characteristic error:", err);
+                await manager.cancelDeviceConnection(device.id).catch(() => {});
+                return null;
             }
-        });
+
+            setLastDevice(connected.id)
 
             return connected;
+
         } catch (e) {
             console.error("❌ Connection failed:", e);
             logMsg("❌ Connection failed");
-            return false;
+            return null; // ✅ make sure all failures return null
         }
     };
 
@@ -218,7 +268,7 @@ export const BLEProvider = ({ children }) => {
                 setConnectedDevice,
                 subscribeToRx,
                 unsubscribeRx,
-                disconnectDevice,connectDevice,sendMessage,hasTried
+                disconnectDevice,connectDevice,sendMessage,hasTried,hasBonded,lastDevice
 
             }}
         >

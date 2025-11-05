@@ -251,7 +251,8 @@ export default function Pairing() {
 
             const freq = await sendMessage('GET_FREQ')
             if (freq && parseFloat(freq)) {
-                if (parseFloat(freq) !== storedDevices[index]?.frequency) {
+                if (parseFloat(freq).toFixed(1) !== storedDevices[index]?.frequency.toFixed(1)) {
+                    console.log('aaayyysa')
                     setCurrentId(-1)
                     setCurrentMode(-1)
                 }
@@ -261,7 +262,7 @@ export default function Pairing() {
                         ? {
                             ...d,
                             frequency: parseFloat(freq),
-                            ...(parseFloat(freq) !== storedDevices[index]?.frequency
+                            ...(parseFloat(freq).toFixed(1) !== storedDevices[index]?.frequency.toFixed(1)
                                 ? {currentId: -1, currentMode: -1}
                                 : {}),
                         }
@@ -278,6 +279,7 @@ export default function Pairing() {
             if (!isNaN(index) && storedDevices[index]) {
                 setDeviceName(storedDevices[index]?.name ?? '');
                 setCurrentId(storedDevices[index]?.currentId ?? -1);
+                console.log(storedDevices[index]?.currentMode)
                 setCurrentMode(storedDevices[index]?.currentMode ?? -1);
                 //  else {
                 //     console.log('d')
@@ -395,6 +397,7 @@ export default function Pairing() {
     }, [currentDimension, id]);
     const { disconnectDevice, connectedDevice } = useBLE();
 
+
     const [editModal, setEditModal] = useState(-1);
     const [presetPopupWindow, setPresetPopupWindow] = useState(0);
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -402,6 +405,12 @@ export default function Pairing() {
     const [newPresetFreq, setNewPresetFreq] = useState('');
     const [setFrequencyModal, setSetFrequencyModal] = useState(false);
     const [newFrequency, setNewFrequency] = useState('');
+    useEffect(() => {
+        if (!connectedDevice) {
+            console.log("⚠️ Disconnected — returning to main screen");
+            router.back();
+        }
+    }, [connectedDevice]);
     useEffect(() => {
         const preset = presets.find((item) => item.id === currentId);
         const room = rooms.find((item) => item.id === currentId);
@@ -579,7 +588,7 @@ export default function Pairing() {
                                                         await saveData('devices', devices)
 
                                                         setCurrentId(-1)
-                                                        router.back()
+                                                        // router.back()
                                                     }} role={'destructive'} modifiers={[
                                                         foregroundStyle('red')
                                                     ]} systemImage={'trash'}>

@@ -5,9 +5,10 @@ import {styles} from "../../lib/theme";
 // @ts-ignore
 // import Pod from "@/assets/images/pod.svg"
 import Pod from "../../assets/images/pod.svg";
-import {Button, Host} from '@expo/ui/swift-ui';
+import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
+import manager from "@/app/components/bleManager";
 
-import {glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
+import {foregroundStyle, glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
 import {useRouter} from "expo-router";
 import {IconSymbol} from "../../lib/ui/icon-symbol";
 import {loadData, saveData} from "../../lib/utils";
@@ -20,10 +21,18 @@ import {useBLE} from "@/lib/BLEProvider";
 export default function HomeScreen() {
     const [hidden, setHidden] = React.useState(false);
     const router = useRouter();
-    const {sendMessage, connectedDevice, hasTried} = useBLE()
+    const {sendMessage, connectedDevice, lastDevice,hasBonded, hasTried, connectDevice, disconnectDevice, unsubscribeRx} = useBLE()
     const [hasAttempted, setHasAttempted] = React.useState(false)
     const [devices, setDevices] = React.useState<Device[]>([])
     const [devicesLoaded, setDevicesLoaded] = React.useState(false);
+    const goDevice = React.useRef(-1)
+
+    useEffect(() => {
+        if (goDevice.current > -1) {
+            router.push({pathname: '/device', params: {id: goDevice.current}})
+            setTimeout(() => setHidden(true), 100)
+        }
+    }, [connectedDevice]);
 
     useFocusEffect(
         useCallback(() => {
@@ -71,6 +80,24 @@ export default function HomeScreen() {
         }, [hasTried,devicesLoaded, connectedDevice])
     );
 
+    useEffect(() => {
+         saveData('devices', devices)
+    }, [devices]);
+
+    useEffect(() => {
+        console.log(hasBonded)
+        const init = async () => {
+            if (hasBonded === 0) {
+                await disconnectDevice(lastDevice)
+                setDevices(prev => {
+                    return prev.filter(itemm => itemm.deviceId !== lastDevice)
+                })
+            }
+        }
+        init()
+
+    }, [hasBonded]);
+
     return (
         <View style={styles.container}>
 
@@ -110,72 +137,119 @@ export default function HomeScreen() {
                     }}>
                         {
                             devices.map((item, i) => (
-                                <GlassView key={i} style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
-                                           glassEffectStyle="clear">
-                                    <View style={[localStyles.glassBoxBox]}>
-                                        <Host style={{
-                                            width: '100%',
-                                            height: '100%'
-                                        }}>
-                                            <Button
-                                                onPress={() => {
+                                <Host key={i} style={{
+                                    // width: 60,
+                                    // height: '100%'
+                                }}>
 
-                                                    router.push({pathname: '/device', params: {id: '0'}})
-                                                    setTimeout(() => setHidden(true), 100)
-                                                }}
-                                                variant="plain"
-                                                modifiers={[
-                                                    glassEffect({
-                                                        glass: {
-                                                            variant: 'identity',
-                                                            interactive: true,
-                                                        },
-                                                        shape: 'rectangle',
-                                                    }),
-                                                ]}
-                                            >
-                                                <View style={[{
-                                                    width: '100%',
-                                                    height: '100%',
-                                                    flexDirection: 'row',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    paddingHorizontal: 16
-                                                }, localStyles.deviceItemOuterOuter]}>
-                                                    <View style={localStyles.deviceItemDetails}>
-                                                        <Pod style={
-                                                            {alignSelf: "center"}
-                                                        } height={'90%'}/>
-                                                        <View style={localStyles.deviceItemStuff}>
-                                                            <View>
-                                                                <Text style={[localStyles.text, localStyles.headline, {
-                                                                    // color: hidden ? '#afafaf' : 'white'
-                                                                }]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
-                                                                <Text
-                                                                    style={[localStyles.text, localStyles.subheadline, localStyles.greyed, {
-                                                                        // color: hidden ? '#afafaf' : 'white'
-                                                                    }]}>{false ? '------------' : 'Acoustic Pod'}</Text>
+
+                                    <ContextMenu activationMethod={'longPress'}>
+                                        <ContextMenu.Items>
+                                            <Button onPress={async () => {
+                                                if (connectedDevice && connectedDevice.id === item.deviceId) {
+                                                    disconnectDevice()
+                                                }
+                                                setDevices(prev => {
+                                                    console.log(prev.filter(itemm => itemm.id !== parseInt(item.id)))
+                                                    return prev.filter(itemm => itemm.id !== parseInt(item.id))
+                                                })
+
+                                                // router.back()
+                                            }} role={'destructive'} modifiers={[
+                                                foregroundStyle('red')
+                                            ]} systemImage={'trash'}>
+                                                Delete
+                                            </Button>
+                                        </ContextMenu.Items>
+                                        <ContextMenu.Trigger>
+                                            <GlassView key={i} style={[localStyles.glassBox,{
+                                                // pointerEvents: !connectedDevice || item.deviceId !== connectedDevice?.id ? 'none' : 'all',
+                                                opacity: !connectedDevice || item.deviceId !== connectedDevice?.id ? .5 : 1 //TODO pointer ecents none, bluetootgh disconnect on app unfocus
+                                            }]} tintColor={'rgba(50,50,50,.7)'}
+                                                       glassEffectStyle="clear">
+                                                <View style={[localStyles.glassBoxBox]}>
+                                                    <Host style={{
+                                                        width: '100%',
+                                                        height: '100%'
+                                                    }}>
+                                                        <Button
+                                                            onPress={async () => {
+                                                                if (!connectedDevice || item.deviceId !== connectedDevice?.id) {
+                                                                    if (connectedDevice) {
+                                                                        await disconnectDevice()
+                                                                    }
+                                                                    if (!connectedDevice) {
+                                                                        const device = await manager.connectToDevice(item.deviceId, { autoConnect: true });
+                                                                        unsubscribeRx();
+
+                                                                        await connectDevice(device)
+                                                                        goDevice.current = item.id
+                                                                    }
+                                                                }
+                                                                if (connectedDevice) {
+                                                                    router.push({pathname: '/device', params: {id: item.id}})
+                                                                    setTimeout(() => setHidden(true), 100)
+                                                                }
+
+                                                            }}
+                                                            variant="plain"
+                                                            modifiers={[
+                                                                glassEffect({
+                                                                    glass: {
+                                                                        variant: 'identity',
+                                                                        interactive: true,
+                                                                    },
+                                                                    shape: 'rectangle',
+                                                                }),
+                                                            ]}
+                                                        >
+                                                            <View style={[{
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                flexDirection: 'row',
+                                                                justifyContent: 'space-between',
+                                                                alignItems: 'center',
+                                                                paddingHorizontal: 16
+                                                            }, localStyles.deviceItemOuterOuter]}>
+                                                                <View style={localStyles.deviceItemDetails}>
+                                                                    <Pod style={
+                                                                        {alignSelf: "center"}
+                                                                    } height={'90%'}/>
+                                                                    <View style={localStyles.deviceItemStuff}>
+                                                                        <View>
+                                                                            <Text style={[localStyles.text, localStyles.headline, {
+                                                                                // color: hidden ? '#afafaf' : 'white'
+                                                                            }]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
+                                                                            <Text
+                                                                                style={[localStyles.text, localStyles.subheadline, localStyles.greyed, {
+                                                                                    // color: hidden ? '#afafaf' : 'white'
+                                                                                }]}>{false ? '------------' : 'Acoustic Pod'}</Text>
+                                                                        </View>
+
+
+                                                                        <GlassView style={localStyles.hertzTag}>
+                                                                            <IconSymbol size={28} color={'white'}
+                                                                                        name="waveform.path"/>
+                                                                            <Text
+                                                                                style={[localStyles.text, localStyles.footnote]}>{hidden || !item?.frequency || !hasAttempted ? '-----' : item.frequency.toFixed(1)}Hz</Text>
+                                                                        </GlassView>
+                                                                    </View>
+
+                                                                </View>
+                                                                <IconSymbol style={{}} size={30} name={'chevron.forward'}
+                                                                            color={'white'}/>
                                                             </View>
 
 
-                                                            <GlassView style={localStyles.hertzTag}>
-                                                                <IconSymbol size={28} color={'white'}
-                                                                            name="waveform.path"/>
-                                                                <Text
-                                                                    style={[localStyles.text, localStyles.footnote]}>{hidden || !item?.frequency || !hasAttempted ? '-----' : item.frequency.toFixed(1)}Hz</Text>
-                                                            </GlassView>
-                                                        </View>
-
-                                                    </View>
-                                                    <IconSymbol style={{}} size={30} name={'chevron.forward'}
-                                                                color={'white'}/>
+                                                        </Button>
+                                                    </Host>
                                                 </View>
+                                            </GlassView>
+                                        </ContextMenu.Trigger>
+                                    </ContextMenu>
 
+                                </Host>
 
-                                            </Button>
-                                        </Host>
-                                    </View>
-                                </GlassView>
                             ))
                         }
 
