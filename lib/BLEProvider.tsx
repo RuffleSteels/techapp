@@ -1,7 +1,7 @@
 // BLEProvider.tsx
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { BleManager, Device, Characteristic } from "react-native-ble-plx";
-import {loadData, saveData} from "@/lib/utils";
+import {loadData, saveData} from "../lib/utils";
 import { useRouter, usePathname } from "expo-router";
 interface BLEContextType {
     manager: BleManager;
@@ -15,6 +15,8 @@ interface BLEContextType {
     hasTried: boolean;
     hasBonded: number;
     lastDevice: string;
+    isReconnecting: boolean;
+    setIsReconnecting: (value: boolean) => void;
 }
 
 const manager = new BleManager();
@@ -29,37 +31,61 @@ export const BLEProvider = ({ children }) => {
     const [lastDevice, setLastDevice] = useState<string>(null);
     // const [rxSubscription, setRxSubscription] = useState<any>(null);
     const rxSubscription = useRef<any>(null);
+    const [isReconnecting, setIsReconnecting] = useState(false);
 
     const logMsg = (...args: any[]) => console.log(...args);
     const pendingRequests = useRef(
         new Map<string, { resolve: (val: string | null) => void; timeoutId: NodeJS.Timeout }>()
     ).current;
     const isManualDisconnect = useRef(false);
-    const router = useRouter();
-    const pathname = usePathname();
+    function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMsg = 'Operation timed out'): Promise<T> {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error(errorMsg)), timeoutMs);
+            promise
+                .then((res) => {
+                    clearTimeout(timeout);
+                    resolve(res);
+                })
+                .catch((err) => {
+                    clearTimeout(timeout);
+                    reject(err);
+                });
+        });
+    }
     // Auto-reconnect on app launch
     useEffect(() => {
         const tryReconnect = async () => {
+            setIsReconnecting(true)
+            await new Promise(res => setTimeout(res, 300)); // wait a bit
             const devices = await loadData('devices');
+
             if (!devices || devices.length === 0) {
                 setHasTried(true)
                 return
             }
-
             try {
                 console.log("🔄 Trying to reconnect to", devices[0].name);
-                const device = await manager.connectToDevice(devices[0].deviceId, { autoConnect: true });
-                await connectDevice(device)
+
+                const device = await withTimeout(
+                    manager.connectToDevice(devices[0].deviceId, { autoConnect: true }),
+                    2000, // ⏱ timeout in ms
+                    "Connection attempt timed out"
+                );
+
+                await connectDevice(device);
                 console.log("✅ Reconnected to previously paired device");
-                setHasTried(true)
+                setHasTried(true);
+
             } catch (e) {
-                console.warn("❌ Auto-reconnect failed", e);
-                setHasTried(true)
+                console.warn("❌ Auto-reconnect failed:", e.message || e);
+                setHasTried(true);
             }
+            setIsReconnecting(false)
         };
 
         const sub = manager.onStateChange((state) => {
             if (state === "PoweredOn") {
+                console.log('oooo')
                 tryReconnect();
                 sub.remove();
             }
@@ -268,7 +294,7 @@ export const BLEProvider = ({ children }) => {
                 setConnectedDevice,
                 subscribeToRx,
                 unsubscribeRx,
-                disconnectDevice,connectDevice,sendMessage,hasTried,hasBonded,lastDevice
+                disconnectDevice,connectDevice,sendMessage,hasTried,hasBonded,lastDevice,isReconnecting,setIsReconnecting
 
             }}
         >

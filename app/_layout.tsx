@@ -2,8 +2,8 @@ import {Stack} from "expo-router";
 import {StatusBar, View} from "react-native";
 import {SafeAreaProvider} from "react-native-safe-area-context";
 import React from "react";
-import AnimationProvider from "@/app/components/AnimationContext";
-import {BLEProvider} from "@/lib/BLEProvider";
+import AnimationProvider from "./components/AnimationContext";
+import {BLEProvider} from "../lib/BLEProvider";
 
 export default function RootLayout() {
     return (

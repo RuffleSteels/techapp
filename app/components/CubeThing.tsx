@@ -1,14 +1,14 @@
 // CubeThing.tsx
 import React, {useEffect, useRef, useState} from "react";
 import {Dimensions, Keyboard, StyleSheet, Text, TextInput, View} from "react-native";
-import WireframeCuboid from "@/app/components/Cuboid";
+import WireframeCuboid from "../components/Cuboid";
 import Animated, {runOnJS, useAnimatedStyle, useSharedValue, withTiming,} from "react-native-reanimated";
 import {BlurView} from "expo-blur";
 import {Button, Host} from "@expo/ui/swift-ui";
 import * as Haptics from "expo-haptics";
 import {glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
 import {loadData, saveData} from "../../lib/utils";
-import {useAnimation} from "@/app/components/AnimationContext";
+import {useAnimation} from "../components/AnimationContext";
 import {Device, Room} from "../../lib/types";
 
 function findFirstMissingId(items: Room[]): number {

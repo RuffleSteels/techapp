@@ -13,10 +13,10 @@ import Pod from "../assets/images/pod.svg";
 import {LinearGradient} from 'expo-linear-gradient';
 import {BlurView} from "expo-blur";
 import MaskedView from "@react-native-masked-view/masked-view";
-import manager from "@/app/components/bleManager";
-import {Device, Preset} from "@/lib/types";
-import {loadData, saveData} from "@/lib/utils";
-import {useBLE} from "@/lib/BLEProvider";
+import manager from "./components/bleManager";
+import {Device, Preset} from "../lib/types";
+import {loadData, saveData} from "../lib/utils";
+import {useBLE} from "../lib/BLEProvider";
 import {has} from "react-native-reanimated/lib/typescript/createAnimatedComponent/utils";
 // TODO when u go on the pairing screen, if its alreayd connected, it disconnects, to allow to scan for more devices.
 function findFirstMissingId(items: Device[]): number {
@@ -131,6 +131,7 @@ export default function Pairing() {
 
                 router.back()
             }
+            router.back()
         } catch (e) {
             console.error(e);
             logMsg("❌ Connection failed");

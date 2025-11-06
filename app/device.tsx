@@ -10,12 +10,11 @@ import {foregroundStyle, glassEffect, padding} from "@expo/ui/swift-ui/modifiers
 import {useHeaderHeight} from '@react-navigation/elements';
 
 // @ts-ignore
-import Graph from "@/assets/images/graph.svg"
+import Graph from "../assets/images/graph.svg"
 import {IconSymbol} from "../lib/ui/icon-symbol";
 import {loadData, saveData} from "../lib/utils";
 import {Preset, Room} from "../lib/types";
-import manager from "@/app/components/bleManager";
-import {useBLE} from "@/lib/BLEProvider";
+import {useBLE} from "../lib/BLEProvider";
 
 
 const presetss = [
@@ -250,6 +249,7 @@ export default function Pairing() {
             const index = parseInt(id as string);
 
             const freq = await sendMessage('GET_FREQ')
+            console.log(freq, 'ee')
             if (freq && parseFloat(freq)) {
                 if (parseFloat(freq).toFixed(1) !== storedDevices[index]?.frequency.toFixed(1)) {
                     console.log('aaayyysa')

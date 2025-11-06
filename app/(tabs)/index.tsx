@@ -6,7 +6,7 @@ import {styles} from "../../lib/theme";
 // import Pod from "@/assets/images/pod.svg"
 import Pod from "../../assets/images/pod.svg";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
-import manager from "@/app/components/bleManager";
+import manager from "../components/bleManager";
 
 import {foregroundStyle, glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
 import {useRouter} from "expo-router";
@@ -14,23 +14,27 @@ import {IconSymbol} from "../../lib/ui/icon-symbol";
 import {loadData, saveData} from "../../lib/utils";
 import {useFocusEffect} from '@react-navigation/native';
 import {Device} from "../../lib/types";
-import {useBLE} from "@/lib/BLEProvider";
+import {useBLE} from "../../lib/BLEProvider";
+import * as Haptics from "expo-haptics";
 
 
 
 export default function HomeScreen() {
     const [hidden, setHidden] = React.useState(false);
     const router = useRouter();
-    const {sendMessage, connectedDevice, lastDevice,hasBonded, hasTried, connectDevice, disconnectDevice, unsubscribeRx} = useBLE()
+    const {sendMessage, isReconnecting, setIsReconnecting, connectedDevice, lastDevice,hasBonded, hasTried, connectDevice, disconnectDevice, unsubscribeRx} = useBLE()
     const [hasAttempted, setHasAttempted] = React.useState(false)
     const [devices, setDevices] = React.useState<Device[]>([])
     const [devicesLoaded, setDevicesLoaded] = React.useState(false);
     const goDevice = React.useRef(-1)
+    const [failed, setFailed] = React.useState(0)
+    // const [isReconnecting, setIsReconnecting] = React.useState(false)
 
     useEffect(() => {
         if (goDevice.current > -1) {
             router.push({pathname: '/device', params: {id: goDevice.current}})
             setTimeout(() => setHidden(true), 100)
+            goDevice.current = -1
         }
     }, [connectedDevice]);
 
@@ -62,7 +66,9 @@ export default function HomeScreen() {
 
 
                     if (connectedDeviceItem) {
+                        console.log('get')
                         const frequency = await sendMessage('GET_FREQ')
+                        console.log(frequency, 'freq')
                         setDevices((prevDevices) => {
                             return prevDevices.map((d) =>
                                 d.deviceId === connectedDevice.id
@@ -81,6 +87,15 @@ export default function HomeScreen() {
     );
 
     useEffect(() => {
+        if (failed) {
+            setTimeout(() => {
+                setFailed(0)
+            },8000)
+        }
+    }, [failed]);
+
+    useEffect(() => {
+        console.log(devices)
          saveData('devices', devices)
     }, [devices]);
 
@@ -162,89 +177,184 @@ export default function HomeScreen() {
                                             </Button>
                                         </ContextMenu.Items>
                                         <ContextMenu.Trigger>
-                                            <GlassView key={i} style={[localStyles.glassBox,{
-                                                // pointerEvents: !connectedDevice || item.deviceId !== connectedDevice?.id ? 'none' : 'all',
-                                                opacity: !connectedDevice || item.deviceId !== connectedDevice?.id ? .5 : 1 //TODO pointer ecents none, bluetootgh disconnect on app unfocus
-                                            }]} tintColor={'rgba(50,50,50,.7)'}
-                                                       glassEffectStyle="clear">
-                                                <View style={[localStyles.glassBoxBox]}>
-                                                    <Host style={{
+                                            <View>
+                                                {
+                                                    !connectedDevice || item.deviceId !== connectedDevice?.id ?<View style={{
+                                                        position: 'absolute',
                                                         width: '100%',
-                                                        height: '100%'
+                                                        height: '100%',
+                                                        zIndex: 10,
+                                                        pointerEvents: 'none',
+                                                        // backgroundColor: 'red',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center'
                                                     }}>
-                                                        <Button
-                                                            onPress={async () => {
-                                                                if (!connectedDevice || item.deviceId !== connectedDevice?.id) {
+                                                        <Host>
+                                                            <Button
+                                                                onPress={() => {
+
+                                                                }}
+                                                                role="default"
+                                                                variant="plain"
+                                                                modifiers={[
+                                                                    padding({
+                                                                        all: 4,
+                                                                    }),
+                                                                    glassEffect({
+                                                                        glass: {
+
+                                                                            tint: 'rgba(255,255,255,0.2)',
+                                                                            variant: 'regular',
+                                                                            interactive: true,
+                                                                        },
+                                                                        shape: 'capsule'
+                                                                    }),
+                                                                ]}
+                                                                // color={'rgba(255,100,100,0.3)'}
+                                                            >
+                                                                <Text style={[localStyles.text, {
+                                                                    paddingBottom: 12,
+                                                                    paddingVertical: 4,
+                                                                    paddingHorizontal: 8,
+                                                                    paddingRight: 14,
+                                                                    fontSize: 18,
+                                                                    fontWeight: 600
+                                                                }]}>
+                                                                    {isReconnecting ? 'Connecting...' : 'Connect'}
+                                                                </Text>
+
+                                                            </Button>
+                                                        </Host>
+                                                    </View> : null
+                                                }
+
+                                                <GlassView key={i} style={[localStyles.glassBox,{
+                                                    pointerEvents: !hasTried || isReconnecting ? 'none' : 'all',
+                                                    opacity: !connectedDevice || item.deviceId !== connectedDevice?.id ? .3 : 1 //TODO pointer ecents none, bluetootgh disconnect on app unfocus
+                                                }]} tintColor={'rgba(50,50,50,.7)'}
+                                                           glassEffectStyle="clear">
+
+                                                    <View style={[localStyles.glassBoxBox, {
+                                                        // opacity
+                                                    }]}>
+
+                                                        <Host style={{
+                                                            width: '100%',
+                                                            height: '100%'
+                                                        }}>
+                                                            <Button
+                                                                onPress={async () => {
+                                                                    setFailed(false)
+                                                                    if (!connectedDevice || item.deviceId !== connectedDevice?.id) {
+                                                                        setIsReconnecting(true)
+                                                                    }
+                                                                    if (!connectedDevice || item.deviceId !== connectedDevice?.id) {
+                                                                        if (connectedDevice) {
+                                                                            await disconnectDevice()
+                                                                        }
+                                                                        if (!connectedDevice) {
+                                                                            try {
+                                                                                // Optional: cancel any previous pending BLE actions
+                                                                                await manager.cancelDeviceConnection(item.deviceId).catch(() => {});
+
+                                                                                // Ensure Bluetooth is powered on before connecting
+                                                                                const state = await manager.state();
+                                                                                if (state !== 'PoweredOn') {
+                                                                                    console.warn("⚠️ Bluetooth is not powered on");
+                                                                                    setFailed(1);
+                                                                                    setIsReconnecting(false);
+                                                                                    return;
+                                                                                }
+
+                                                                                console.log("🔌 Attempting to connect:", item.deviceId);
+
+                                                                                const device = await manager.connectToDevice(item.deviceId, {
+                                                                                    autoConnect: false, // important: avoid this on iOS
+                                                                                    timeout: 10000, // optional timeout in ms
+                                                                                });
+
+                                                                                console.log("✅ Connected to:", device.name);
+
+                                                                                // Discover services and characteristics
+                                                                                await device.discoverAllServicesAndCharacteristics();
+
+                                                                                unsubscribeRx();
+                                                                                const res = await connectDevice(device);
+                                                                                console.log(res);
+                                                                                goDevice.current = item.id;
+
+                                                                            } catch (error: any) {
+                                                                                console.error("❌ Failed to connect:", error?.message || error);
+                                                                                setFailed(2);
+                                                                                setIsReconnecting(false);
+
+                                                                                // optional — retry automatically
+                                                                                // setTimeout(() => retryConnect(item.deviceId), 3000);
+                                                                            }
+                                                                        }
+                                                                    }
                                                                     if (connectedDevice) {
-                                                                        await disconnectDevice()
+                                                                        router.push({pathname: '/device', params: {id: item.id}})
+                                                                        setTimeout(() => setHidden(true), 100)
                                                                     }
-                                                                    if (!connectedDevice) {
-                                                                        const device = await manager.connectToDevice(item.deviceId, { autoConnect: true });
-                                                                        unsubscribeRx();
+                                                                    setIsReconnecting(false)
 
-                                                                        await connectDevice(device)
-                                                                        goDevice.current = item.id
-                                                                    }
-                                                                }
-                                                                if (connectedDevice) {
-                                                                    router.push({pathname: '/device', params: {id: item.id}})
-                                                                    setTimeout(() => setHidden(true), 100)
-                                                                }
-
-                                                            }}
-                                                            variant="plain"
-                                                            modifiers={[
-                                                                glassEffect({
-                                                                    glass: {
-                                                                        variant: 'identity',
-                                                                        interactive: true,
-                                                                    },
-                                                                    shape: 'rectangle',
-                                                                }),
-                                                            ]}
-                                                        >
-                                                            <View style={[{
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                flexDirection: 'row',
-                                                                justifyContent: 'space-between',
-                                                                alignItems: 'center',
-                                                                paddingHorizontal: 16
-                                                            }, localStyles.deviceItemOuterOuter]}>
-                                                                <View style={localStyles.deviceItemDetails}>
-                                                                    <Pod style={
-                                                                        {alignSelf: "center"}
-                                                                    } height={'90%'}/>
-                                                                    <View style={localStyles.deviceItemStuff}>
-                                                                        <View>
-                                                                            <Text style={[localStyles.text, localStyles.headline, {
-                                                                                // color: hidden ? '#afafaf' : 'white'
-                                                                            }]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
-                                                                            <Text
-                                                                                style={[localStyles.text, localStyles.subheadline, localStyles.greyed, {
+                                                                }}
+                                                                variant="plain"
+                                                                modifiers={[
+                                                                    glassEffect({
+                                                                        glass: {
+                                                                            variant: 'identity',
+                                                                            interactive: true,
+                                                                        },
+                                                                        shape: 'rectangle',
+                                                                    }),
+                                                                ]}
+                                                            >
+                                                                <View style={[{
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    flexDirection: 'row',
+                                                                    justifyContent: 'space-between',
+                                                                    alignItems: 'center',
+                                                                    paddingHorizontal: 16
+                                                                }, localStyles.deviceItemOuterOuter]}>
+                                                                    <View style={localStyles.deviceItemDetails}>
+                                                                        <Pod style={
+                                                                            {alignSelf: "center"}
+                                                                        } height={'90%'}/>
+                                                                        <View style={localStyles.deviceItemStuff}>
+                                                                            <View>
+                                                                                <Text style={[localStyles.text, localStyles.headline, {
                                                                                     // color: hidden ? '#afafaf' : 'white'
-                                                                                }]}>{false ? '------------' : 'Acoustic Pod'}</Text>
+                                                                                }]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
+                                                                                <Text
+                                                                                    style={[localStyles.text, localStyles.subheadline, localStyles.greyed, {
+                                                                                        // color: hidden ? '#afafaf' : 'white'
+                                                                                    }]}>{false ? '------------' : 'Acoustic Pod'}</Text>
+                                                                            </View>
+
+
+                                                                            <GlassView style={localStyles.hertzTag}>
+                                                                                <IconSymbol size={28} color={'white'}
+                                                                                            name="waveform.path"/>
+                                                                                <Text
+                                                                                    style={[localStyles.text, localStyles.footnote]}>{hidden || !item?.frequency || !hasAttempted ? '-----' : item.frequency.toFixed(1)}Hz</Text>
+                                                                            </GlassView>
                                                                         </View>
 
-
-                                                                        <GlassView style={localStyles.hertzTag}>
-                                                                            <IconSymbol size={28} color={'white'}
-                                                                                        name="waveform.path"/>
-                                                                            <Text
-                                                                                style={[localStyles.text, localStyles.footnote]}>{hidden || !item?.frequency || !hasAttempted ? '-----' : item.frequency.toFixed(1)}Hz</Text>
-                                                                        </GlassView>
                                                                     </View>
-
+                                                                    <IconSymbol style={{}} size={30} name={'chevron.forward'}
+                                                                                color={'white'}/>
                                                                 </View>
-                                                                <IconSymbol style={{}} size={30} name={'chevron.forward'}
-                                                                            color={'white'}/>
-                                                            </View>
 
 
-                                                        </Button>
-                                                    </Host>
-                                                </View>
-                                            </GlassView>
+                                                            </Button>
+                                                        </Host>
+                                                    </View>
+                                                </GlassView>
+                                            </View>
+
                                         </ContextMenu.Trigger>
                                     </ContextMenu>
 
@@ -295,7 +405,36 @@ export default function HomeScreen() {
                         </GlassView>
                     </View>
 
+
                 </View>
+                {
+                    failed > 0 ? <View style={{
+                        position: 'absolute',
+                        width: '100%',
+                        height: '100%',
+                        paddingVertical: 84,
+                        paddingHorizontal:24,
+                        justifyContent: 'flex-end',
+                        alignItems: 'center'
+                    }}>
+                        <GlassView
+                            style={[localStyles.warningContainer]}
+                            glassEffectStyle="clear"
+                            tintColor="rgba(50,50,50,.5)"
+                        >
+                            <IconSymbol size={40} color="#EAAC47" name="exclamationmark.triangle.fill"/>
+                            <Text style={[localStyles.text, {
+                                flexShrink: 1,
+                                flexGrow: 1,
+                                width: 0
+                            }
+                            ]}>
+                                {failed === 1 ? "Please turn on your phone's bluetooth and try again." : 'Connection failed. Make sure the pod is powered on and that you are within 1m of it.'}
+                            </Text>
+                        </GlassView>
+                    </View>: null
+                }
+
             </ImageBackground>
         </View>
     );
@@ -398,6 +537,18 @@ const localStyles = StyleSheet.create({
         justifyContent: "center",
         // backgroundColor: "rgba(0, 0, 0, 0,8)", // light translucent layer
     },
+    warningContainer: {
+        paddingHorizontal: 24,
+        // paddingRight: 24,
+        paddingVertical: 16,
+        marginBottom: 32,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 24,
+        borderRadius: 24,
+        width: '100%'
+    },
+
     text: {
         color: "#fff",
     },

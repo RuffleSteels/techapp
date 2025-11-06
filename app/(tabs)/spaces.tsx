@@ -14,7 +14,7 @@ import {styles} from "../../lib/theme";
 import {Button, Host} from "@expo/ui/swift-ui";
 import {glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
 import {GlassView} from "expo-glass-effect";
-import CubeThing from "@/app/components/CubeThing";
+import CubeThing from "../components/CubeThing";
 import {useFocusEffect} from '@react-navigation/native';
 import * as Haptics from "expo-haptics";
 
