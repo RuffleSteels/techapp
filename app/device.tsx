@@ -111,21 +111,43 @@ function RoomCard({
             }}>
                 <Button
                     onPress={() => {
-                        setCurrentId(item.id)
-                        setCurrentMode(1)
-                        setSetFrequencyModal(false)
-                        setNewFrequency('')
+                        if (parseFloat(item.length[1]) && parseFloat(item.length[1]) < 0) {
+
+                        } else {
+                            setCurrentId(item.id)
+                            setCurrentMode(1)
+                            setSetFrequencyModal(false)
+                            setNewFrequency('')
+                        }
+
 
                         if (item.id === currentId && currentMode === 1) {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
-                            setCurrentDimension((prev: number[]) => {
+                            if (parseFloat(item.length[1]) && parseFloat(item.length[1]) < 0) {
 
-                                return ({
-                                    ...prev,
-                                    [currentId]: (prev[currentId] + 1) % 3
-                                })
-                            });
+                            } else {
+                                setCurrentDimension((prev: Record<number, number>) => {
+                                    const current = prev[currentId] ?? 0;
+                                    const dims = [item.length[1], item.width[1], item.height[1]];
+
+                                    // Find the next valid dimension index whose value >= 0
+                                    let next = current;
+                                    for (let i = 1; i <= 3; i++) {
+                                        const candidate = (current + i) % 3;
+                                        if (parseFloat(dims[candidate]) >= 0) {
+                                            next = candidate;
+                                            break;
+                                        }
+                                    }
+
+                                    return {
+                                        ...prev,
+                                        [currentId]: next,
+                                    };
+                                });
+                            }
+
                         } else {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }
@@ -159,15 +181,15 @@ function RoomCard({
                             <View style={{gap: 2}}>
                                 <Text
                                     style={[localStyles.text, localStyles.footnote, {fontWeight: currentDimension[item.id] === 0 ? '800' : '300'}]}>
-                                    Length: {item.length[0]}m - {item.length[1].toFixed(1)}Hz
+                                    Length: {item.length[0]}m - {parseFloat(item.length[1]) ? parseFloat(item.length[1]) < 0 ? 'N/A' : `${parseFloat(item.length[1]).toFixed(1)}Hz` : 0}
                                 </Text>
                                 <Text
                                     style={[localStyles.text, localStyles.footnote, {fontWeight: currentDimension[item.id] === 1 ? '800' : '300'}]}>
-                                    Width: {item.width[0]}m - {item.width[1].toFixed(1)}Hz
+                                    Width: {item.width[0]}m - {parseFloat(item.width[1]) ? parseFloat(item.width[1] )< 0 ? 'N/A' : `${parseFloat(item.width[1]).toFixed(1)}Hz` : 0}
                                 </Text>
                                 <Text
                                     style={[localStyles.text, localStyles.footnote, {fontWeight: currentDimension[item.id] === 2 ? '800' : '300'}]}>
-                                    Height: {item.height[0]}m - {item.height[1].toFixed(1)}Hz
+                                    Height: {item.height[0]}m - {parseFloat(item.height[1]) ? parseFloat(item.height[1]) < 0 ? 'N/A' : `${parseFloat(item.height[1]).toFixed(1)}Hz` : 0}
                                 </Text>
                             </View>
                             <View style={{flexGrow: 1}}>
@@ -573,11 +595,11 @@ export default function Pairing() {
 
                                             <ContextMenu>
                                                 <ContextMenu.Items>
-                                                    <Button onPress={() => {
-                                                        setDeviceNameEdit(true)
-                                                    }} systemImage={'pencil'}>
-                                                        Rename
-                                                    </Button>
+                                                    {/*<Button onPress={() => {*/}
+                                                    {/*    setDeviceNameEdit(true)*/}
+                                                    {/*}} systemImage={'pencil'}>*/}
+                                                    {/*    Rename*/}
+                                                    {/*</Button>*/}
                                                     <Button onPress={async () => {
                                                         if (connectedDevice && connectedDevice.id === deviceId) {
                                                             disconnectDevice()
@@ -987,37 +1009,37 @@ export default function Pairing() {
                                         <Text style={[localStyles.text, localStyles.headline]}>
                                             Rooms
                                         </Text>
-                                        <View style={{flexDirection: 'row', gap: 10}}>
-                                            <Host>
-                                                <Button
-                                                    onPress={() => {
-                                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+                                        {/*<View style={{flexDirection: 'row', gap: 10}}>*/}
+                                            {/*<Host>*/}
+                                            {/*    <Button*/}
+                                            {/*        onPress={() => {*/}
+                                            {/*            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);*/}
 
-                                                        router.push('/(tabs)/spaces')
-                                                    }}
-                                                    role="default"
-                                                    variant="plain"
-                                                    modifiers={[
-                                                        padding({
-                                                            all: 4,
-                                                        }),
-                                                        glassEffect({
-                                                            glass: {
-                                                                variant: 'regular',
-                                                                interactive: true,
-                                                            }
-                                                        }),
-                                                    ]}
-                                                    color={'rgba(100,100,100,0.3)'}
-                                                >
-                                                    <IconSymbol style={{
-                                                        textAlign: 'center',
-                                                        bottom: 0
-                                                    }} size={30} name="plus" color="white"/>
+                                            {/*            router.push('/(tabs)/spaces')*/}
+                                            {/*        }}*/}
+                                            {/*        role="default"*/}
+                                            {/*        variant="plain"*/}
+                                            {/*        modifiers={[*/}
+                                            {/*            padding({*/}
+                                            {/*                all: 4,*/}
+                                            {/*            }),*/}
+                                            {/*            glassEffect({*/}
+                                            {/*                glass: {*/}
+                                            {/*                    variant: 'regular',*/}
+                                            {/*                    interactive: true,*/}
+                                            {/*                }*/}
+                                            {/*            }),*/}
+                                            {/*        ]}*/}
+                                            {/*        color={'rgba(100,100,100,0.3)'}*/}
+                                            {/*    >*/}
+                                            {/*        <IconSymbol style={{*/}
+                                            {/*            textAlign: 'center',*/}
+                                            {/*            bottom: 0*/}
+                                            {/*        }} size={30} name="plus" color="white"/>*/}
 
-                                                </Button>
-                                            </Host>
-                                        </View>
+                                            {/*    </Button>*/}
+                                            {/*</Host>*/}
+                                        {/*</View>*/}
                                     </View>
                                     <View
                                         style={{gap: 16}}

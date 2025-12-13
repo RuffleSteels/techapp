@@ -429,7 +429,7 @@ export default function HomeScreen() {
                                 width: 0
                             }
                             ]}>
-                                {failed === 1 ? "Please turn on your phone's bluetooth and try again." : 'Connection failed. Make sure the pod is powered on and that you are within 1m of it.'}
+                                {failed === 1 ? "Please turn on your phone's bluetooth and try again." : 'Connection failed. Make sure the pod is switched on and that you are within 1m of it.'}
                             </Text>
                         </GlassView>
                     </View>: null

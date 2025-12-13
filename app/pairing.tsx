@@ -4,9 +4,8 @@ import {styles} from "../lib/theme";
 import {useRouter} from "expo-router";
 import {Button, Host} from '@expo/ui/swift-ui';
 import {GlassView} from "expo-glass-effect";
-import {BleManager} from "react-native-ble-plx";
+import {BleManager, ScanMode} from "react-native-ble-plx";
 import {IconSymbol} from "../lib/ui/icon-symbol";
-import { encode as btoa, decode as atob } from "base-64";
 // @ts-ignore
 // import Pod from "@/assets/images/pod.svg"
 import Pod from "../assets/images/pod.svg";
@@ -17,7 +16,6 @@ import manager from "./components/bleManager";
 import {Device, Preset} from "../lib/types";
 import {loadData, saveData} from "../lib/utils";
 import {useBLE} from "../lib/BLEProvider";
-import {has} from "react-native-reanimated/lib/typescript/createAnimatedComponent/utils";
 // TODO when u go on the pairing screen, if its alreayd connected, it disconnects, to allow to scan for more devices.
 function findFirstMissingId(items: Device[]): number {
     const ids = new Set(items.map(item => item.id));
@@ -48,32 +46,37 @@ export default function Pairing() {
                 disconnectDevice()
             }
 
-            manager.startDeviceScan(null, null, (error, device) => {
-                if (error) {
-                    console.log('eek')
-                    console.error(error);
-                    return;
-                }
 
-                if (!device || !device.manufacturerData) return;
+            manager.startDeviceScan(
+                null,
+                {
+                    allowDuplicates: true,
+                    scanMode: ScanMode.LowLatency,
+                },
+                (error, device) => {
+                    if (error) {
+                        console.error(error);
+                        return;
+                    }
 
-                const decoded = atob(device.manufacturerData);
-                const bytes = new Uint8Array(decoded.length);
-                for (let i = 0; i < decoded.length; i++) {
-                    bytes[i] = decoded.charCodeAt(i);
-                }
+                    // Safely extract name/localName
+                    const deviceName = device?.name || device?.localName;
+                    if (!deviceName) return;
 
-                // Read first 2 bytes as little-endian
-                const companyId = bytes[0] | (bytes[1] << 8);
+                    // Match your device
+                    if (deviceName !== "Acoustic Pod") return;
 
-                if (companyId === MY_COMPANY_ID) {
-                    logMsg(`📡 Found device: ${device.name ?? device.id}`);
+                    // Debug
+                    console.log("Found:", deviceName, device.id);
+
+                    // Add device if not already stored
                     setDevices(prev => {
-                        if (prev.find(d => d.id === device.id)) return prev;
+                        if (prev.some(d => d.id === device.id)) return prev;
                         return [...prev, device];
                     });
                 }
-            });
+            );
+
 
             // Stop after 10 seconds
             setTimeout(() => {
@@ -129,9 +132,10 @@ export default function Pairing() {
 
                 await saveData('devices', oldDevices)
 
+                console.log('back!')
                 router.back()
             }
-            router.back()
+            // router.back()
         } catch (e) {
             console.error(e);
             logMsg("❌ Connection failed");
@@ -164,9 +168,9 @@ export default function Pairing() {
                                 </View>
                             </View>
                             <Text style={[localStyles.text, localStyles.headline]}>
-                                Make sure the pod is powered on.{" "}
+                                Make sure the pod is switched on.{" "}
                                 <Text style={[localStyles.text, localStyles.body]}>
-                                    Stay within one metre of the pod. If your pod isn’t connecting, turn the pod off,
+                                    Hold the button for 3-5 seconds, stay within one metre of the pod. If your pod isn’t showing up, turn the pod off,
                                     wait 10 seconds and turn it back on.
                                 </Text>
                             </Text>
@@ -316,7 +320,7 @@ export default function Pairing() {
                                             width: 0
                                         }
                                         ]}>
-                                            Can&#39;t see your pod? Make sure the pod is powered on and that you are within 1m of
+                                            Can&#39;t see your pod? Make sure the pod is switched on and that you are within 1m of
                                             it.
                                         </Text>
                                     </GlassView>

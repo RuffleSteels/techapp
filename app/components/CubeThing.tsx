@@ -19,7 +19,88 @@ function findFirstMissingId(items: Room[]): number {
     }
     return i;
 }
+type RoomMode = {
+    nx: number;
+    ny: number;
+    nz: number;
+    frequency: number;
+    bounces: number;
+    type: "axial" | "tangential" | "oblique";
+};
 
+/**
+ * Finds the top 3 room modes within the given frequency range (default 100–140 Hz).
+ * Prioritizes:
+ *   1️⃣ Fewest total bounces
+ *   2️⃣ Fewer active axes (axial < tangential < oblique) — only if bounce count ties
+ *   3️⃣ Lower frequency
+ * Removes duplicate (near-identical) frequencies.
+ */
+function findTop3ModesInRange(
+    length: number,
+    width: number,
+    height: number,
+    range: [number, number] = [100, 140],
+    speedOfSound = 343
+): RoomMode[] {
+    const [minF, maxF] = range;
+    const modes: RoomMode[] = [];
+
+    // Generate all mode combinations (up to 10 reflections per axis)
+    for (let nx = 0; nx <= 10; nx++) {
+        for (let ny = 0; ny <= 10; ny++) {
+            for (let nz = 0; nz <= 10; nz++) {
+                if (nx === 0 && ny === 0 && nz === 0) continue;
+
+                const freq =
+                    (speedOfSound / 2) *
+                    Math.sqrt(
+                        (nx / length) ** 2 +
+                        (ny / width) ** 2 +
+                        (nz / height) ** 2
+                    );
+
+                if (freq < minF || freq > maxF) continue;
+
+                const bounces = nx + ny + nz;
+                const activeAxes = [nx, ny, nz].filter((v) => v > 0).length;
+                const type =
+                    activeAxes === 1
+                        ? "axial"
+                        : activeAxes === 2
+                            ? "tangential"
+                            : "oblique";
+
+                modes.push({ nx, ny, nz, frequency: freq, bounces, type });
+            }
+        }
+    }
+
+    const typeWeight = { axial: 1, tangential: 2, oblique: 3 };
+
+    // Sort priority: bounces → type → frequency
+    const sorted = modes.sort((a, b) => {
+        if (a.bounces !== b.bounces) return a.bounces - b.bounces;
+        if (typeWeight[a.type] !== typeWeight[b.type])
+            return typeWeight[a.type] - typeWeight[b.type];
+        return a.frequency - b.frequency;
+    });
+
+    // Remove duplicate or near-identical frequencies (±0.1 Hz)
+    const unique: RoomMode[] = [];
+    for (const mode of sorted) {
+        if (
+            !unique.some(
+                (m) => Math.abs(m.frequency - mode.frequency) < 0.1
+            )
+        ) {
+            unique.push(mode);
+        }
+        if (unique.length >= 3) break;
+    }
+
+    return unique;
+}
 interface CubeThingProps {
     setDims: React.Dispatch<React.SetStateAction<{
         name: string;
@@ -49,6 +130,7 @@ export default function CubeThing({ setDims, triggerAnim, setTriggerAnim, dims }
     const top = useSharedValue(-12);
     const scrollRef = useRef(null);
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const calculatedRef = useRef([{frequency:0},{frequency:0},{frequency:0}]);
 
     const frameRef = useRef<number | null>(null);
     useEffect(() => {
@@ -217,6 +299,10 @@ export default function CubeThing({ setDims, triggerAnim, setTriggerAnim, dims }
     const width = parseFloat(dims[0].value) || 3;
     const depth = parseFloat(dims[1].value) || 2;
 
+    useEffect(() => {
+        calculatedRef.current = findTop3ModesInRange(height, width, depth);
+        console.log(calculatedRef.current)
+    }, [triggerAnim]);
     return (
         <Animated.View
             style={[styles.container, cubeStyle, {
@@ -261,21 +347,21 @@ export default function CubeThing({ setDims, triggerAnim, setTriggerAnim, dims }
                                 fontWeight: '300',
                                 fontSize: 26
                             }}>
-                                Length: 100.0Hz
+                                Length: {calculatedRef.current[0] ? `${calculatedRef.current[0].frequency.toFixed(1)}Hz` : 'N/A'}
                             </Text>
                             <Text style={{
                                 color: 'white',
                                 fontWeight: '300',
                                 fontSize: 26
                             }}>
-                                Width: 140.2Hz
+                                Width: {calculatedRef.current[1] ? `${calculatedRef.current[1].frequency.toFixed(1)}Hz` : 'N/A'}
                             </Text>
                             <Text style={{
                                 color: 'white',
                                 fontWeight: '300',
                                 fontSize: 26
                             }}>
-                                Height: 132.5Hz
+                                Height: {calculatedRef.current[2] ? `${calculatedRef.current[2].frequency.toFixed(1)}Hz` : 'N/A'}
                             </Text>
                         </View>
 
@@ -327,14 +413,17 @@ export default function CubeThing({ setDims, triggerAnim, setTriggerAnim, dims }
                                     const id = findFirstMissingId(rooms)
                                     const newRoom = {
                                         name: name,
-                                        length: [parseFloat(dims[0].value), 100],
-                                        width: [parseFloat(dims[1].value), 100],
-                                        height: [parseFloat(dims[2].value), 100],
+                                        length: [parseFloat(dims[0].value),calculatedRef.current[0] ? parseFloat(calculatedRef.current[0].frequency.toFixed(1)) : -1],
+                                        width: [parseFloat(dims[1].value),  calculatedRef.current[1] ? parseFloat(calculatedRef.current[1].frequency.toFixed(1)) : -1],
+                                        height: [parseFloat(dims[2].value),  calculatedRef.current[2] ? parseFloat(calculatedRef.current[2].frequency.toFixed(1)) : -1],
                                         id
                                     }
 
+                                    console.log('eeeeka')
+                                    console.log(newRoom)
+
                                     devices.map((item: Device) => {
-                                        item.currentDimension[id] = 0;
+                                        item.currentDimension[id] = calculatedRef.current[0] ? 0 : -1;
                                     });
 
                                     rooms.push(newRoom)

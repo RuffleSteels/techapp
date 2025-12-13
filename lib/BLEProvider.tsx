@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { BleManager, Device, Characteristic } from "react-native-ble-plx";
 import {loadData, saveData} from "../lib/utils";
-import { useRouter, usePathname } from "expo-router";
+
 interface BLEContextType {
     manager: BleManager;
     connectedDevice: Device | null;
@@ -32,6 +32,23 @@ export const BLEProvider = ({ children }) => {
     // const [rxSubscription, setRxSubscription] = useState<any>(null);
     const rxSubscription = useRef<any>(null);
     const [isReconnecting, setIsReconnecting] = useState(false);
+
+    const [pairedDevice, setPairedDevice] = useState(null);
+
+    useEffect(() => {
+        if (!connectedDevice) return;
+
+        // 🔐 PIN HAS BEEN ENTERED AND ACCEPTED
+        console.log("🔐 Pairing completed (PIN accepted)");
+
+        // Anything that must wait for PIN goes here:
+        // - navigation
+        // - reading secure characteristics
+        // - enabling UI
+        // - saving device
+        // - router.back()
+
+    }, [connectedDevice]);
 
     const logMsg = (...args: any[]) => console.log(...args);
     const pendingRequests = useRef(
@@ -202,8 +219,8 @@ export const BLEProvider = ({ children }) => {
                 return null;
             }
 
-            setConnectedDevice(connected);
-            logMsg("✅ Connected and services discovered");
+            logMsg("🔐 Waiting for secure channel (PIN may be required)...");
+
 
             const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
             const RX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
@@ -214,6 +231,8 @@ export const BLEProvider = ({ children }) => {
                     const [header, payload] = trimmed.split(":");
                     logMsg(`📥 RX: ${header} -> ${payload}`);
 
+                    setConnectedDevice(connected);
+
                     if (pendingRequests.has(header)) {
                         const { resolve, timeoutId } = pendingRequests.get(header)!;
                         clearTimeout(timeoutId);
@@ -223,6 +242,8 @@ export const BLEProvider = ({ children }) => {
                         logMsg(`⚠️ No pending request for ${header} (maybe timed out)`);
                     }
                 });
+                setConnectedDevice(connected);
+                logMsg("🔐 Secure channel established (PIN accepted)");
             } catch (err) {
                 // 👉 Characteristic access failed — usually encryption/pairing issue
                 logMsg("❌ Failed to subscribe to characteristic — possibly incorrect PIN or security mismatch");
@@ -241,6 +262,8 @@ export const BLEProvider = ({ children }) => {
             return null; // ✅ make sure all failures return null
         }
     };
+
+
 
     const sendMessage = async (
         message: string,
@@ -294,7 +317,7 @@ export const BLEProvider = ({ children }) => {
                 setConnectedDevice,
                 subscribeToRx,
                 unsubscribeRx,
-                disconnectDevice,connectDevice,sendMessage,hasTried,hasBonded,lastDevice,isReconnecting,setIsReconnecting
+                disconnectDevice, connectDevice, sendMessage, hasTried, hasBonded, lastDevice, isReconnecting, setIsReconnecting
 
             }}
         >
