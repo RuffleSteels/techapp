@@ -302,13 +302,13 @@ export default function HomeScreen() {
                                                                 }}
                                                                 variant="plain"
                                                                 modifiers={[
-                                                                    glassEffect({
-                                                                        glass: {
-                                                                            variant: 'identity',
-                                                                            interactive: true,
-                                                                        },
-                                                                        shape: 'rectangle',
-                                                                    }),
+                                                                    // glassEffect({
+                                                                    //     glass: {
+                                                                    //         variant: 'regular',
+                                                                    //         interactive: true,
+                                                                    //     },
+                                                                    //     shape: 'rectangle',
+                                                                    // }),
                                                                 ]}
                                                             >
                                                                 <View style={[{
@@ -384,7 +384,7 @@ export default function HomeScreen() {
                                             }),
                                             glassEffect({
                                                 glass: {
-                                                    variant: 'identity',
+                                                    variant: 'regular',
                                                     interactive: true,
                                                 },
                                                 shape: 'rectangle',

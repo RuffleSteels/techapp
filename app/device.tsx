@@ -155,13 +155,13 @@ function RoomCard({
                     }}
                     variant="plain"
                     modifiers={[
-                        glassEffect({
-                            glass: {
-                                variant: 'identity',
-                                interactive: !showCreateModal,
-                            },
-                            shape: 'rectangle',
-                        }),
+                        // glassEffect({
+                        //     glass: {
+                        //         variant: 'regular',
+                        //         interactive: !showCreateModal,
+                        //     },
+                        //     shape: 'rectangle',
+                        // }),
                     ]}
                 >
                     <View style={{
@@ -951,13 +951,13 @@ export default function Pairing() {
                                                                             }}
                                                                             variant="plain"
                                                                             modifiers={[
-                                                                                glassEffect({
-                                                                                    glass: {
-                                                                                        variant: 'identity',
-                                                                                        interactive: !showCreateModal,
-                                                                                    },
-                                                                                    shape: 'rectangle',
-                                                                                }),
+                                                                                // glassEffect({
+                                                                                //     glass: {
+                                                                                //         variant: 'regular',
+                                                                                //         interactive: !showCreateModal,
+                                                                                //     },
+                                                                                //     shape: 'rectangle',
+                                                                                // }),
                                                                             ]}
                                                                         >
                                                                             <View style={[{
