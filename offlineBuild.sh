@@ -4,13 +4,12 @@ rm -rf ios
 rm -rf dist
 npx expo prebuild
 npx expo export --output-dir ios/build-assets --platform ios
-npx react-native bundle \                                   
+npx react-native bundle \
   --platform ios \
   --dev false \
   --entry-file node_modules/expo-router/entry.js \
   --bundle-output ios/main.jsbundle \
   --assets-dest ios
-
 FILE="ios/techappnewdev/AppDelegate.swift"
 
 # Check that the file exists
@@ -30,7 +29,6 @@ in_block && /#endif/ {
   print "    #else"
   print "      return Bundle.main.url(forResource: \"main\", withExtension: \"jsbundle\")"
   print "    #endif"
-  print "    }"
   next
 }
 !in_block { print }

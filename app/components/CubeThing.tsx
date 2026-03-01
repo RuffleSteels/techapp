@@ -27,31 +27,28 @@ type RoomMode = {
     bounces: number;
     type: "axial" | "tangential" | "oblique";
 };
-
-/**
- * Finds the top 3 room modes within the given frequency range (default 100–140 Hz).
- * Prioritizes:
- *   1️⃣ Fewest total bounces
- *   2️⃣ Fewer active axes (axial < tangential < oblique) — only if bounce count ties
- *   3️⃣ Lower frequency
- * Removes duplicate (near-identical) frequencies.
- */
 function findTop3ModesInRange(
     length: number,
     width: number,
     height: number,
-    range: [number, number] = [100, 140],
+    range: [number, number] = [100, 140], // Frequency range to analyse (Hz)
     speedOfSound = 343
 ): RoomMode[] {
     const [minF, maxF] = range;
+
+    // Place to store all valid room modes found during calculation
     const modes: RoomMode[] = [];
 
-    // Generate all mode combinations (up to 10 reflections per axis)
+    // Loop through possible all possible mode combinations
     for (let nx = 0; nx <= 10; nx++) {
         for (let ny = 0; ny <= 10; ny++) {
             for (let nz = 0; nz <= 10; nz++) {
+
+                // Skip the invalid case where no wave exists at all
                 if (nx === 0 && ny === 0 && nz === 0) continue;
 
+                // Calculate the resonant frequency for this mode
+                // This is the standard room-mode equation for a rectangular space
                 const freq =
                     (speedOfSound / 2) *
                     Math.sqrt(
@@ -60,34 +57,64 @@ function findTop3ModesInRange(
                         (nz / height) ** 2
                     );
 
+                // Ignore frequencies outside the target range
                 if (freq < minF || freq > maxF) continue;
 
+                // Calculate total number of bounces involved in this mode
                 const bounces = nx + ny + nz;
+
+                // Count how many room dimensions participate in this resonance
+                // (used to classify axial (1 dim), tangential (2 dims), or oblique modes (3 dims))
                 const activeAxes = [nx, ny, nz].filter((v) => v > 0).length;
+
+                // Classify the type of room mode based on active dimensions
                 const type =
                     activeAxes === 1
-                        ? "axial"
+                        ? "axial"       // Between two opposite walls
                         : activeAxes === 2
-                            ? "tangential"
-                            : "oblique";
+                            ? "tangential" // Involves four walls
+                            : "oblique";   // Involves all six walls
 
-                modes.push({ nx, ny, nz, frequency: freq, bounces, type });
+                // Store the calculated mode and its properties
+                modes.push({
+                    nx,
+                    ny,
+                    nz,
+                    frequency: freq,
+                    bounces,
+                    type
+                });
             }
         }
     }
 
-    const typeWeight = { axial: 1, tangential: 2, oblique: 3 };
+    // Assign numeric priority to each mode type
+    // Lower values indicate higher priority
+    const typeWeight = {
+        axial: 1,
+        tangential: 2,
+        oblique: 3
+    };
 
-    // Sort priority: bounces → type → frequency
+    // Sort modes by importance:
+    // 1) Fewer total bounces
+    // 2) Simpler mode type (axial first)
+    // 3) Lower frequency
     const sorted = modes.sort((a, b) => {
-        if (a.bounces !== b.bounces) return a.bounces - b.bounces;
+        if (a.bounces !== b.bounces)
+            return a.bounces - b.bounces;
+
         if (typeWeight[a.type] !== typeWeight[b.type])
             return typeWeight[a.type] - typeWeight[b.type];
+
         return a.frequency - b.frequency;
     });
 
-    // Remove duplicate or near-identical frequencies (±0.1 Hz)
+    // Store only perceptually distinct modes
     const unique: RoomMode[] = [];
+
+    // Remove modes with near-identical frequencies
+    // This avoids returning multiple modes that sound the same
     for (const mode of sorted) {
         if (
             !unique.some(
@@ -96,9 +123,12 @@ function findTop3ModesInRange(
         ) {
             unique.push(mode);
         }
+
+        // Stop once the three most important modes are found
         if (unique.length >= 3) break;
     }
 
+    // Return the top three dominant room resonances
     return unique;
 }
 interface CubeThingProps {
@@ -552,3 +582,4 @@ const styles = StyleSheet.create({
         left: 0,
     },
 });
+

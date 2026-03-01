@@ -1,61 +1,80 @@
-// BLEProvider.tsx
-import React, { createContext, useContext, useEffect, useState, useRef } from "react";
-import { BleManager, Device, Characteristic } from "react-native-ble-plx";
-import {loadData, saveData} from "../lib/utils";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { BleManager, Device } from "react-native-ble-plx";
+import { loadData } from "../lib/utils";
 
+/*
+  Defines the Bluetooth functionality that is shared across the app.
+  This allows any screen to connect to the Arduino and send/receive data.
+*/
 interface BLEContextType {
     manager: BleManager;
     connectedDevice: Device | null;
     setConnectedDevice: (device: Device | null) => void;
-    subscribeToRx: (device: Device, serviceUUID: string, charUUID: string, callback: (value: string) => void) => void;
+    subscribeToRx: (
+        device: Device,
+        serviceUUID: string,
+        charUUID: string,
+        callback: (value: string) => void
+    ) => void;
     unsubscribeRx: () => void;
     disconnectDevice: () => void;
-    connectDevice: (device: Device) => Promise<boolean>;
-    sendMessage: (message: string, reqName?: string) => Promise<string | null>; // 👈 new
+    connectDevice: (device: Device) => Promise<Device | null>;
+    sendMessage: (message: string, reqName?: Device | null) => Promise<string | null>;
     hasTried: boolean;
     hasBonded: number;
-    lastDevice: string;
+    lastDevice: string | null;
     isReconnecting: boolean;
     setIsReconnecting: (value: boolean) => void;
 }
 
+// Create a single Bluetooth manager instance for the entire app
 const manager = new BleManager();
 
-// Provide a default value matching the type, using dummy functions
+// Create a shared Bluetooth context
 const BLEContext = createContext<BLEContextType | undefined>(undefined);
 
 export const BLEProvider = ({ children }) => {
+
+    // Stores the currently connected Arduino device
     const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
+
+    // Tracks whether automatic reconnection has already been attempted
     const [hasTried, setHasTried] = useState<boolean>(false);
+
+    // Used to indicate whether secure pairing (PIN) succeeded
     const [hasBonded, setHasBonded] = useState<number>(-1);
-    const [lastDevice, setLastDevice] = useState<string>(null);
-    // const [rxSubscription, setRxSubscription] = useState<any>(null);
+
+    // Stores the ID of the last paired device for auto-reconnection
+    const [lastDevice, setLastDevice] = useState<string | null>(null);
+
+    // Reference to the active Bluetooth receive subscription
     const rxSubscription = useRef<any>(null);
+
+    // Indicates whether the app is currently reconnecting
     const [isReconnecting, setIsReconnecting] = useState(false);
 
-    const [pairedDevice, setPairedDevice] = useState(null);
-
-    useEffect(() => {
-        if (!connectedDevice) return;
-
-        // 🔐 PIN HAS BEEN ENTERED AND ACCEPTED
-        console.log("🔐 Pairing completed (PIN accepted)");
-
-        // Anything that must wait for PIN goes here:
-        // - navigation
-        // - reading secure characteristics
-        // - enabling UI
-        // - saving device
-        // - router.back()
-
-    }, [connectedDevice]);
-
+    // Helper function for logging debug messages
     const logMsg = (...args: any[]) => console.log(...args);
+
+    /*
+      Stores outgoing commands while waiting for a response from the Arduino.
+      This enables reliable request–response communication.
+    */
     const pendingRequests = useRef(
-        new Map<string, { resolve: (val: string | null) => void; timeoutId: NodeJS.Timeout }>()
+        new Map<string, { resolve: (val: string | null) => void; timeoutId: number }>()
     ).current;
+
+    // Used to distinguish between user disconnects and signal loss
     const isManualDisconnect = useRef(false);
-    function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMsg = 'Operation timed out'): Promise<T> {
+
+    /*
+      Wraps a promise with a timeout so Bluetooth operations do not hang forever.
+    */
+    function withTimeout<T>(
+        promise: Promise<T>,
+        timeoutMs: number,
+        errorMsg = 'Operation timed out'
+    ): Promise<T> {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error(errorMsg)), timeoutMs);
             promise
@@ -69,40 +88,51 @@ export const BLEProvider = ({ children }) => {
                 });
         });
     }
-    // Auto-reconnect on app launch
+
+    /*
+      Runs once when the app starts.
+      Attempts to reconnect automatically to the previously paired Arduino.
+    */
     useEffect(() => {
         const tryReconnect = async () => {
-            setIsReconnecting(true)
-            await new Promise(res => setTimeout(res, 300)); // wait a bit
+            setIsReconnecting(true);
+            await new Promise(res => setTimeout(res, 300)); // Short delay for BLE startup
+
+            // Load saved device information
             const devices = await loadData('devices');
 
+            // Stop if no device has been paired before
             if (!devices || devices.length === 0) {
-                setHasTried(true)
-                return
+                setHasTried(true);
+                return;
             }
+
             try {
                 console.log("🔄 Trying to reconnect to", devices[0].name);
 
+                // Attempt reconnection with a timeout
                 const device = await withTimeout(
                     manager.connectToDevice(devices[0].deviceId, { autoConnect: true }),
-                    2000, // ⏱ timeout in ms
+                    2000,
                     "Connection attempt timed out"
                 );
 
+                // Complete secure connection setup
                 await connectDevice(device);
                 console.log("✅ Reconnected to previously paired device");
                 setHasTried(true);
 
-            } catch (e) {
+            } catch (e: any) {
                 console.warn("❌ Auto-reconnect failed:", e.message || e);
                 setHasTried(true);
             }
-            setIsReconnecting(false)
+
+            setIsReconnecting(false);
         };
 
+        // Wait until Bluetooth is powered on before reconnecting
         const sub = manager.onStateChange((state) => {
             if (state === "PoweredOn") {
-                console.log('oooo')
                 tryReconnect();
                 sub.remove();
             }
@@ -110,30 +140,38 @@ export const BLEProvider = ({ children }) => {
 
         return () => sub.remove();
     }, []);
+
+    // Stops listening for incoming Bluetooth data
     const unsubscribeRx = () => {
         if (rxSubscription.current) {
             rxSubscription.current.remove();
-            // setRxSubscription(null);
             rxSubscription.current = null;
         }
     };
 
+    /*
+      Subscribes to incoming Bluetooth data from the Arduino.
+      This mirrors the rx_callback() function in the Arduino code.
+    */
     const subscribeToRx = (
         device: Device,
         serviceUUID: string,
         charUUID: string,
         callback: (value: string) => void
     ) => {
-        // If there’s already a live subscription, don’t create another
+
+        // Prevent duplicate subscriptions
         if (rxSubscription.current) {
             console.log("⚠️ Already subscribed, skipping duplicate monitor");
             return;
         }
 
-        const subscription = device.monitorCharacteristicForService(
+        rxSubscription.current = device.monitorCharacteristicForService(
             serviceUUID,
             charUUID,
             async (error, characteristic) => {
+
+                // Handle Bluetooth disconnections and cancelled operations
                 if (error) {
                     if (
                         error.errorCode === 201 || // DeviceDisconnected
@@ -142,146 +180,177 @@ export const BLEProvider = ({ children }) => {
                         error.message?.includes("cancelled")
                     ) {
                         if (isManualDisconnect.current) {
-                            console.log("ℹ️ BLE manually disconnected:", error.message);
+                            console.log("ℹ️ BLE manually disconnected");
                         } else {
-                            console.log("⚠️ BLE unexpectedly disconnected:", error.message);
-
+                            console.log("⚠️ BLE unexpectedly disconnected");
                         }
+
                         unsubscribeRx();
-                        console.log(rxSubscription)
                         isManualDisconnect.current = false;
                         setConnectedDevice(null);
                         return;
                     }
 
+                    // Handle characteristic or security-related errors
                     if (error.message?.toLowerCase().includes("characteristic")) {
-                        console.log('A characteristic error occurred: ')
-                        setHasBonded(0)
+                        setHasBonded(0);
                     }
 
                     console.error("❌ BLE monitor error:", error.message);
                     unsubscribeRx();
-                    console.log(rxSubscription)
                     setConnectedDevice(null);
                     return;
                 }
 
+                // Decode Base64 data sent from the Arduino
                 if (characteristic?.value) {
                     const value = atob(characteristic.value);
                     callback(value);
                 }
             }
         );
-
-        rxSubscription.current = subscription;
     };
 
-    // Helper to clean up RX subscription
-
+    /*
+      Safely disconnects from the device.
+      Used when the user manually ends the Bluetooth connection.
+    */
     const disconnectDevice = async (cid = null) => {
+        // Only attempt to disconnect if a device is connected or an ID is provided
         if (connectedDevice || cid) {
-            isManualDisconnect.current = true; // 👈 mark it
 
-            unsubscribeRx();
-            await manager.cancelDeviceConnection(cid ? cid : connectedDevice.id);
-            setConnectedDevice(null);
-             // reset for next time
+            // Ensure the currently connected device has a valid Bluetooth ID
+            if (connectedDevice?.id) {
 
-            console.log("Disconnecting current device")
+                // Mark this as a user-initiated disconnect
+                // This prevents auto-reconnect logic from triggering
+                isManualDisconnect.current = true;
+
+                // Stop listening for incoming Bluetooth data
+                unsubscribeRx();
+
+                // Cancel the Bluetooth connection to the device
+                await manager.cancelDeviceConnection(
+                    cid ? cid : connectedDevice.id
+                );
+
+                // Clear the stored connected device state
+                setConnectedDevice(null);
+
+                // Log the disconnect for debugging
+                console.log("Disconnecting current device");
+            }
         }
-    }
+    };
+
+    // Connects to the XIAO and sets up secure Bluetooth communication.
     const connectDevice = async (device: Device): Promise<Device | null> => {
         try {
-            logMsg(`🔗 Connecting to ${device.name}...`);
+            // Log which device is being connected to
+            logMsg(`Connecting to ${device.name}...`);
 
-            // Clean up existing connection if needed
+            // Stop listening for old Bluetooth data
+            unsubscribeRx();
+
+            // If already connected to this device, reset the connection first
             if (connectedDevice && connectedDevice.id === device.id) {
-                logMsg("🔌 Already connected — resetting connection...");
-                unsubscribeRx();
+                // Cancel the existing connection
                 await manager.cancelDeviceConnection(device.id).catch(() => {});
                 setConnectedDevice(null);
             }
 
-            unsubscribeRx();
+            // Connect to the Bluetooth device
+            const connected = await manager.connectToDevice(
+                device.id,
+                { autoConnect: false }
+            );
 
-            // Fresh connect (no auto-connect)
-            const connected = await manager.connectToDevice(device.id, { autoConnect: false });
+            // Short delay to allow the connection to stabilise
             await new Promise(res => setTimeout(res, 300));
 
+            // Discover available Bluetooth services and data
+            // and request device for larger message sizes
             try {
                 await connected.discoverAllServicesAndCharacteristics();
                 await connected.requestMTU(247).catch(() => {});
             } catch (err) {
-                // 👉 This can happen if pairing fails or PIN is incorrect
-                logMsg("🔒 Secure connection failed during discovery — likely pairing/PIN issue");
-                console.error("Discovery error:", err);
+                // If secure pairing or discovery fails, disconnect safely
+                logMsg("Secure connection failed — likely PIN or pairing issue");
                 await manager.cancelDeviceConnection(device.id).catch(() => {});
                 return null;
             }
-
-            logMsg("🔐 Waiting for secure channel (PIN may be required)...");
-
 
             const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
             const RX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
-            try {
-                subscribeToRx(connected, UART_SERVICE_UUID, RX_CHAR_UUID, (value) => {
+            // Subscribe to incoming UART messages sent by the device
+            // This listens for responses such as "GET_FREQ:100.0" or "SET_FREQ:OK"
+            // Which are a reply to messages sent by the app, such as "SET_FREQ:100.0"
+            subscribeToRx(
+                connected,
+                UART_SERVICE_UUID,
+                RX_CHAR_UUID,
+                (value) => {
                     const trimmed = value.trim();
                     const [header, payload] = trimmed.split(":");
-                    logMsg(`📥 RX: ${header} -> ${payload}`);
-
-                    setConnectedDevice(connected);
 
                     if (pendingRequests.has(header)) {
                         const { resolve, timeoutId } = pendingRequests.get(header)!;
-                        clearTimeout(timeoutId);
-                        pendingRequests.delete(header);
-                        resolve(payload);
-                    } else {
-                        logMsg(`⚠️ No pending request for ${header} (maybe timed out)`);
+
+                        if (payload?.trim() === "WAIT") {
+                            // Don't resolve — just extend the timeout by 15s
+                            console.log('Waiting for response...')
+                            clearTimeout(timeoutId);
+                            const newTimeoutId = setTimeout(() => {
+                                pendingRequests.delete(header);
+                                resolve(null);
+                            }, 15000);
+                            pendingRequests.set(header, { resolve, timeoutId: newTimeoutId });
+                        } else {
+                            // Normal response — resolve and clean up
+                            clearTimeout(timeoutId);
+                            pendingRequests.delete(header);
+                            resolve(payload);
+                        }
                     }
-                });
-                setConnectedDevice(connected);
-                logMsg("🔐 Secure channel established (PIN accepted)");
-            } catch (err) {
-                // 👉 Characteristic access failed — usually encryption/pairing issue
-                logMsg("❌ Failed to subscribe to characteristic — possibly incorrect PIN or security mismatch");
-                console.error("Characteristic error:", err);
-                await manager.cancelDeviceConnection(device.id).catch(() => {});
-                return null;
-            }
+                }
+            );
 
-            setLastDevice(connected.id)
+            // Save the connected device in app state
+            setConnectedDevice(connected);
 
+            // Store the device ID for automatic reconnection later
+            setLastDevice(connected.id);
+
+            // Return the connected device
             return connected;
-
-        } catch (e) {
-            console.error("❌ Connection failed:", e);
-            logMsg("❌ Connection failed");
-            return null; // ✅ make sure all failures return null
+        } catch {
+            // Return null if the connection fails
+            return null;
         }
     };
 
 
-
+    // Sends a command to the device over Bluetooth and waits for a response.
     const sendMessage = async (
         message: string,
         dev: Device | null = connectedDevice
     ): Promise<string | null> => {
-        if (!dev) {
-            console.warn("⚠️ No connected device to send message to");
-            return null;
-        }
+
+        // Stop immediately if no device is currently connected
+        if (!dev) return null;
 
         const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
         const TX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
+        // Convert the text message to a format that the device can understand
         const base64Msg = btoa(`${message}\n`);
-        const [header] = message.split(":");
-        logMsg(`📤 Sending: ${message}`);
 
-        // Cancel any old request with the same header
+        // Extract the command header (e.g. "SET_FREQ" from "SET_FREQ:100.0")
+        const [header] = message.split(":");
+
+        // If a previous command with the same header is still waiting,
+        // cancel it to avoid conflicting responses
         if (pendingRequests.has(header)) {
             const { resolve, timeoutId } = pendingRequests.get(header)!;
             clearTimeout(timeoutId);
@@ -289,26 +358,34 @@ export const BLEProvider = ({ children }) => {
             pendingRequests.delete(header);
         }
 
-        // Create a promise for this request
+        /*
+          Create a promise that will resolve when the Arduino responds.
+          The response is matched using the command header.
+        */
         const promise = new Promise<string | null>((resolve) => {
+
+            // Timeout ensures the app does not wait forever for a response
             const timeoutId = setTimeout(() => {
-                logMsg(`⏱️ Timeout waiting for ${header}`);
                 pendingRequests.delete(header);
                 resolve(null);
             }, 5000);
 
+            // Store this request so it can be resolved
+            // when a matching response is received via RX
             pendingRequests.set(header, { resolve, timeoutId });
         });
 
-        // Send the BLE write
+        // Send the command to the Arduino using the UART TX characteristic
         await dev.writeCharacteristicWithResponseForService(
             UART_SERVICE_UUID,
             TX_CHAR_UUID,
             base64Msg
         );
 
+        // Return the promise so the caller can await the response
         return promise;
     };
+
     return (
         <BLEContext.Provider
             value={{
@@ -317,8 +394,14 @@ export const BLEProvider = ({ children }) => {
                 setConnectedDevice,
                 subscribeToRx,
                 unsubscribeRx,
-                disconnectDevice, connectDevice, sendMessage, hasTried, hasBonded, lastDevice, isReconnecting, setIsReconnecting
-
+                disconnectDevice,
+                connectDevice,
+                sendMessage,
+                hasTried,
+                hasBonded,
+                lastDevice,
+                isReconnecting,
+                setIsReconnecting
             }}
         >
             {children}
@@ -326,6 +409,7 @@ export const BLEProvider = ({ children }) => {
     );
 };
 
+// Custom hook used by the rest of the app to access Bluetooth features
 export const useBLE = (): BLEContextType => {
     const context = useContext(BLEContext);
     if (!context) {

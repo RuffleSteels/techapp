@@ -68,7 +68,6 @@ function findFirstMissingId(items: Preset[]): number {
     }
     return i;
 }
-
 interface RoomCardProps {
     item: Room;
     i: number;
@@ -81,8 +80,11 @@ interface RoomCardProps {
     currentMode: number;
     currentDimension: any;
     currentId: number;
+    pendingRoomDimension: {id: number, dimension: number} | null;
+    setPendingRoomDimension: React.Dispatch<React.SetStateAction<{id: number, dimension: number} | null>>;
+    handleSetRoom: () => Promise<void>;
+    pendingPreset:number | null;
 }
-
 function RoomCard({
                       item,
                       i,
@@ -94,108 +96,145 @@ function RoomCard({
                       currentDimension,
                       setCurrentDimension,
                       currentMode,
-                      currentId
+                      currentId,
+                      pendingRoomDimension,
+                      setPendingRoomDimension,
+                      handleSetRoom,
+                      pendingPreset
                   }: RoomCardProps) {
+
+    const activeDim = pendingRoomDimension?.id === item.id
+        ? pendingRoomDimension.dimension
+        : currentDimension[item.id];
 
     return <GlassView
         style={[localStyles.glassBox, {width: '100%', height: 'auto', paddingHorizontal: 0, paddingVertical: 0}]}
-        tintColor={currentMode === 1 && item.id === currentId ? 'rgba(161,172,184,0.68)' : 'rgba(50,50,50,.7)'}
+        tintColor={
+            pendingRoomDimension?.id === item.id
+                ? 'rgba(80,80,80,.7)'
+                : currentMode === 1 && item.id === currentId
+                    ? 'rgba(161,172,184,0.68)'
+                    : 'rgba(50,50,50,.7)'
+        }
         glassEffectStyle="clear">
-        <View style={[{
-            width: '100%',
-            // height: '100%'
-        }]}>
-            <Host style={{
-                width: '100%',
-                // height: '100%'
-            }}>
+        <View style={{width: '100%'}}>
+            <Host style={{width: '100%'}}>
                 <Button
                     onPress={() => {
-                        if (parseFloat(item.length[1]) && parseFloat(item.length[1]) < 0) {
+                        if (parseFloat(item.length[1]) && parseFloat(item.length[1]) < 0) return;
 
-                        } else {
-                            setCurrentId(item.id)
-                            setCurrentMode(1)
-                            setSetFrequencyModal(false)
-                            setNewFrequency('')
-                        }
+                        const currentDim = pendingRoomDimension?.id === item.id
+                            ? pendingRoomDimension.dimension
+                            : (currentDimension[item.id] ?? 0);
 
+                        const dims = [item.length[1], item.width[1], item.height[1]];
 
-                        if (item.id === currentId && currentMode === 1) {
+                        if (pendingRoomDimension?.id === item.id || (item.id === currentId && currentMode === 1)) {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-
-                            if (parseFloat(item.length[1]) && parseFloat(item.length[1]) < 0) {
-
-                            } else {
-                                setCurrentDimension((prev: Record<number, number>) => {
-                                    const current = prev[currentId] ?? 0;
-                                    const dims = [item.length[1], item.width[1], item.height[1]];
-
-                                    // Find the next valid dimension index whose value >= 0
-                                    let next = current;
-                                    for (let i = 1; i <= 3; i++) {
-                                        const candidate = (current + i) % 3;
-                                        if (parseFloat(dims[candidate]) >= 0) {
-                                            next = candidate;
-                                            break;
-                                        }
-                                    }
-
-                                    return {
-                                        ...prev,
-                                        [currentId]: next,
-                                    };
-                                });
+                            let next = currentDim;
+                            for (let i = 1; i <= 3; i++) {
+                                const candidate = (currentDim + i) % 3;
+                                if (parseFloat(dims[candidate]) >= 0) {
+                                    next = candidate;
+                                    break;
+                                }
                             }
-
+                            setPendingRoomDimension({id: item.id, dimension: next});
                         } else {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setPendingRoomDimension({id: item.id, dimension: currentDim});
                         }
 
+                        setSetFrequencyModal(false);
+                        setNewFrequency('');
                     }}
                     variant="plain"
-                    modifiers={[
-                        // glassEffect({
-                        //     glass: {
-                        //         variant: 'regular',
-                        //         interactive: !showCreateModal,
-                        //     },
-                        //     shape: 'rectangle',
-                        // }),
-                    ]}
                 >
                     <View style={{
                         paddingHorizontal: 16,
-                        paddingVertical: 12,
-                        gap: 6,
+                        paddingTop: 12,
+                        paddingBottom: pendingRoomDimension?.id === item.id ? 4 : 12,
+                        gap: 10,
                         borderRadius: 18,
                     }}>
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-                            <Text
-                                style={[localStyles.text, localStyles.body, currentMode === 1 && item.id === currentId && {fontWeight: '600'}]}>
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <Text style={[localStyles.text, localStyles.body, (currentMode === 1 && item.id === currentId || pendingRoomDimension?.id === item.id) && {fontWeight: '600'}]}>
                                 {item.name}
                             </Text>
                         </View>
 
-                        <View style={{flexDirection: 'row', gap: 24, justifyContent: 'space-between'}}>
+                        <View style={{flexDirection: 'row', gap: 24, justifyContent: 'space-between', alignItems: 'flex-end'}}>
                             <View style={{gap: 2}}>
-                                <Text
-                                    style={[localStyles.text, localStyles.footnote, {fontWeight: currentDimension[item.id] === 0 ? '800' : '300'}]}>
-                                    Length: {item.length[0]}m - {parseFloat(item.length[1]) ? parseFloat(item.length[1]) < 0 ? 'N/A' : `${parseFloat(item.length[1]).toFixed(1)}Hz` : 0}
+                                <Text style={[localStyles.text, localStyles.footnote, {fontWeight: activeDim === 0 ? '800' : '300'}]}>
+                                    Length: {item.length[0]}m — {parseFloat(item.length[1]) ? parseFloat(item.length[1]) < 0 ? 'N/A' : `${parseFloat(item.length[1]).toFixed(1)}Hz` : 0}
                                 </Text>
-                                <Text
-                                    style={[localStyles.text, localStyles.footnote, {fontWeight: currentDimension[item.id] === 1 ? '800' : '300'}]}>
-                                    Width: {item.width[0]}m - {parseFloat(item.width[1]) ? parseFloat(item.width[1] )< 0 ? 'N/A' : `${parseFloat(item.width[1]).toFixed(1)}Hz` : 0}
+                                <Text style={[localStyles.text, localStyles.footnote, {fontWeight: activeDim === 1 ? '800' : '300'}]}>
+                                    Width: {item.width[0]}m — {parseFloat(item.width[1]) ? parseFloat(item.width[1]) < 0 ? 'N/A' : `${parseFloat(item.width[1]).toFixed(1)}Hz` : 0}
                                 </Text>
-                                <Text
-                                    style={[localStyles.text, localStyles.footnote, {fontWeight: currentDimension[item.id] === 2 ? '800' : '300'}]}>
-                                    Height: {item.height[0]}m - {parseFloat(item.height[1]) ? parseFloat(item.height[1]) < 0 ? 'N/A' : `${parseFloat(item.height[1]).toFixed(1)}Hz` : 0}
+                                <Text style={[localStyles.text, localStyles.footnote, {fontWeight: activeDim === 2 ? '800' : '300'}]}>
+                                    Height: {item.height[0]}m — {parseFloat(item.height[1]) ? parseFloat(item.height[1]) < 0 ? 'N/A' : `${parseFloat(item.height[1]).toFixed(1)}Hz` : 0}
                                 </Text>
-                            </View>
-                            <View style={{flexGrow: 1}}>
-                                <Graph preserveAspectRatio="none" width={'100%'}/>
                             </View>
 
+                            <View style={{flexGrow: 1, position: 'relative'}}>
+                                <Graph preserveAspectRatio="none" width={'100%'}/>
+                                {pendingRoomDimension?.id === item.id && (
+                                    <View style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        right: 0,
+                                    }}>
+                                        <Host>
+                                            <Button
+                                                onPress={handleSetRoom}
+                                                variant="plain"
+                                                modifiers={[
+                                                    glassEffect({
+                                                        glass: {variant: 'regular', interactive: true},
+                                                        shape: 'capsule'
+                                                    }),
+                                                ]}
+                                            >
+                                                <Text style={[localStyles.text, localStyles.footnote, {
+                                                    paddingVertical: 6,
+                                                    paddingHorizontal: 14,
+                                                    fontWeight: '600',
+                                                }]}>
+                                                    Set
+                                                </Text>
+                                            </Button>
+                                        </Host>
+                                    </View>
+                                )}
+                                {pendingRoomDimension?.id === item.id && (
+                                    <View style={{
+                                        position: 'absolute',
+                                        bottom: 0,
+                                        right: 0,
+                                    }}>
+                                        <Host>
+                                            <Button
+                                                onPress={() => setPendingRoomDimension(null)}
+                                                variant="plain"
+                                                modifiers={[
+                                                    glassEffect({
+                                                        glass: {variant: 'regular', interactive: true},
+                                                        shape: 'capsule'
+                                                    }),
+                                                ]}
+                                            >
+                                                <Text style={[localStyles.text, localStyles.footnote, {
+                                                    paddingVertical: 6,
+                                                    paddingHorizontal: 14,
+                                                    fontWeight: '600',
+                                                }]}>
+                                                    Cancel
+                                                </Text>
+                                            </Button>
+                                        </Host>
+                                    </View>
+                                )}
+                            </View>
                         </View>
                     </View>
                 </Button>
@@ -220,15 +259,21 @@ function toWords(num: number): string {
 export default function Pairing() {
     const {id} = useLocalSearchParams();
     const router = useRouter();
-
+    const previousSelection = useRef<{id: number, mode: number} | null>(null);
     const [devices, setDevices] = useState<any[]>([]);
     const [deviceName, setDeviceName] = useState('');
     const [deviceId, setDeviceId] = useState('');
     const [presets, setPresets] = useState<Preset[]>([]);
     const [rooms, setRooms] = useState<Room[]>([]);
-
+    const hasMismatch = useRef(false); // ← add this
+    const [movingOverlay, setMovingOverlay] = useState<{visible: boolean, freq: number, status: 'moving' | 'success' | 'error' | 'oor'}>({
+        visible: false, freq: 0, status: 'moving'
+    });
+    const [renameRoomModal, setRenameRoomModal] = useState<{visible: boolean, id: number, name: string}>({
+        visible: false, id: -1, name: ''
+    });
     const {sendMessage, connectedDevice: cd} = useBLE();
-
+    const [pendingPreset, setPendingPreset] = useState<number | null>(null);
     const [currentFrequency, _setCurrentFrequency] = useState(0);
     const [currentMode, setCurrentMode] = useState(-1);
     const [currentId, setCurrentId] = useState(-1);
@@ -238,26 +283,49 @@ export default function Pairing() {
         )
     );
     const hasLoaded = useRef(false);
-    const setCurrentFrequency = async (newFreq: number, isFirst: boolean) => {
+    const isInitialSync = useRef(true); // ← add this
+    const [pendingRoomDimension, setPendingRoomDimension] = useState<{id: number, dimension: number} | null>(null);
+    const setCurrentFrequency = async (newFreq: number, isFirst: boolean): Promise<boolean> => {
         if (isFirst || currentFrequency === newFreq) {
             _setCurrentFrequency(newFreq);
-            return;
+            return true;
         }
+
+        setMovingOverlay({ visible: true, freq: newFreq, status: 'moving' });
+
         try {
             const response = await sendMessage(`SET_FREQ:${newFreq}`);
 
-            if (response === `OK`) {
+            if (response === 'OK') {
                 _setCurrentFrequency(newFreq);
-                console.log(`✅ Frequency set to ${newFreq}`);
+                setMovingOverlay(prev => ({ ...prev, status: 'success' }));
+                setTimeout(() => setMovingOverlay(prev => ({ ...prev, visible: false })), 1500);
+                return true;
+            } else if (response === 'OOR') {
+                setMovingOverlay(prev => ({ ...prev, status: 'oor' }));
+                setTimeout(() => setMovingOverlay(prev => ({ ...prev, visible: false })), 2000);
+                return false;
+            } else if (response === 'ERR') {
+                setMovingOverlay(prev => ({ ...prev, status: 'error' }));
+                setTimeout(() => setMovingOverlay(prev => ({ ...prev, visible: false })), 2000);
+                return false;
             } else {
-                console.warn(`❌ Device did not accept frequency. Keeping ${currentFrequency}`);
+                // null = timeout or no response — close quietly, don't show error
+                setMovingOverlay(prev => ({ ...prev, visible: false }));
+                return false;
             }
         } catch (e) {
-            console.error("❌ Failed to set frequency:", e);
+            setMovingOverlay(prev => ({ ...prev, status: 'error' }));
+            setTimeout(() => setMovingOverlay(prev => ({ ...prev, visible: false })), 2000);
+            return false;
         }
     };
+
     useEffect(() => {
         const init = async () => {
+            hasMismatch.current = false; // ← reset on each load
+            isInitialSync.current = true;
+
             let storedDevices = (await loadData('devices'))
                 || [{
                 id: 0,
@@ -273,20 +341,44 @@ export default function Pairing() {
             const freq = await sendMessage('GET_FREQ')
             console.log(freq, 'ee')
             if (freq && parseFloat(freq)) {
-                if (parseFloat(freq).toFixed(1) !== storedDevices[index]?.frequency.toFixed(1)) {
-                    console.log('aaayyysa')
-                    setCurrentId(-1)
-                    setCurrentMode(-1)
+                console.log('okay')
+                const originalFreq = storedDevices[index]?.frequency; // ← save BEFORE the map
+
+                const selectedFreq = (() => {
+                    const savedId = storedDevices[index]?.currentId;
+                    const savedMode = storedDevices[index]?.currentMode;
+
+                    if (savedId < 0 || savedMode < 0) return null;
+
+                    if (savedMode === 0) {
+                        // preset
+                        const preset = storedPresets.find(p => p.id === savedId);
+                        return preset ? preset.frequency : null;
+                    } else if (savedMode === 1) {
+                        // room
+                        const room = storedRooms.find(r => r.id === savedId);
+                        const savedDimension = storedDevices[index]?.currentDimension?.[savedId] ?? 0;
+                        const dimKey = toWords(savedDimension) as keyof Room;
+                        const dimValue = room?.[dimKey];
+                        return Array.isArray(dimValue) ? dimValue[1] : null;
+                    }
+                    return null;
+                })();
+
+                if (
+                    parseFloat(freq).toFixed(1) !== originalFreq?.toFixed(1) ||
+                    (selectedFreq !== null && parseFloat(freq).toFixed(1) !== parseFloat(selectedFreq).toFixed(1))
+                ) {
+                    console.log('mismatch detected', parseFloat(freq).toFixed(1), 'vs', originalFreq?.toFixed(1), 'selected freq was', selectedFreq)
+                    hasMismatch.current = true;
                 }
 
-                storedDevices = storedDevices.map((d, index) =>
+                storedDevices = storedDevices.map((d, i) =>  // ← map happens AFTER
                     d.deviceId === cd.id
                         ? {
                             ...d,
                             frequency: parseFloat(freq),
-                            ...(parseFloat(freq).toFixed(1) !== storedDevices[index]?.frequency.toFixed(1)
-                                ? {currentId: -1, currentMode: -1}
-                                : {}),
+                            ...(hasMismatch.current ? {currentId: -1, currentMode: -1} : {}),
                         }
                         : d
                 );
@@ -300,30 +392,73 @@ export default function Pairing() {
 
             if (!isNaN(index) && storedDevices[index]) {
                 setDeviceName(storedDevices[index]?.name ?? '');
-                setCurrentId(storedDevices[index]?.currentId ?? -1);
-                console.log(storedDevices[index]?.currentMode)
-                setCurrentMode(storedDevices[index]?.currentMode ?? -1);
-                //  else {
-                //     console.log('d')
-                    _setCurrentFrequency(storedDevices[index]?.frequency ?? '');
-                // }
 
+                if (hasMismatch.current) {
+                    setCurrentId(-1);
+                    setCurrentMode(-1);
+                } else {
+                    setCurrentId(storedDevices[index]?.currentId ?? -1);
+                    setCurrentMode(storedDevices[index]?.currentMode ?? -1);
+                }
+
+                _setCurrentFrequency(storedDevices[index]?.frequency ?? 0);
                 setCurrentDimension(storedDevices[index]?.currentDimension ?? {});
                 setDeviceId(storedDevices[index]?.deviceId ?? '');
             } else {
                 setDeviceName('');
-                console.log('e')
                 setCurrentFrequency(0, true);
                 setCurrentId(-1);
                 setCurrentMode(-1);
             }
 
             hasLoaded.current = true;
+            setTimeout(() => { isInitialSync.current = false; }, 0); // ← let the render cycle finish first
+
         };
 
         init();
     }, [id]);
+    useEffect(() => {
+        if (!hasLoaded.current || isInitialSync.current) return;
+        const preset = presets.find((item) => item.id === currentId);
 
+        if (currentId < 0 || currentMode < 0) return;
+
+        if (currentMode === 0) {
+            if (preset) {
+                setCurrentFrequency(preset?.frequency ?? 0);
+            }
+        }
+        // rooms are handled by the Set button now, not here
+
+    }, [currentId, currentMode, presets]);
+    const handleSetRoom = async () => {
+        if (pendingRoomDimension === null) return;
+
+        const room = rooms.find(r => r.id === pendingRoomDimension.id);
+        if (!room) return;
+
+        const dimKey = toWords(pendingRoomDimension.dimension) as keyof Room;
+        const dimValue = room[dimKey];
+        const freq = Array.isArray(dimValue) ? dimValue[1] : 0;
+
+        // Save current selection before attempting
+        previousSelection.current = { id: currentId, mode: currentMode };
+
+        const success = await setCurrentFrequency(freq, false);
+
+        if (success) {
+            setCurrentId(pendingRoomDimension.id);
+            setCurrentMode(1);
+            setCurrentDimension(prev => ({ ...prev, [pendingRoomDimension.id]: pendingRoomDimension.dimension }));
+            setPendingRoomDimension(null);
+        } else {
+            // Restore previous selection on failure
+            setCurrentId(previousSelection.current?.id ?? -1);
+            setCurrentMode(previousSelection.current?.mode ?? -1);
+            setPendingRoomDimension(null);
+        }
+    };
     // ✅ Only save after initial load
     useEffect(() => {
         if (hasLoaded.current) saveData('presets', presets);
@@ -419,7 +554,26 @@ export default function Pairing() {
     }, [currentDimension, id]);
     const { disconnectDevice, connectedDevice } = useBLE();
 
+    useEffect(() => {
+        if (!hasLoaded.current || isInitialSync.current) return;
+        if (pendingPreset === null) return;
 
+        const run = async () => {
+            const preset = presets.find(p => p.id === pendingPreset);
+            if (!preset) return;
+
+            const success = await setCurrentFrequency(preset.frequency, false);
+
+            if (success) {
+                setCurrentId(pendingPreset);
+                setCurrentMode(0);
+            }
+            // on failure, currentId/currentMode remain unchanged
+            setPendingPreset(null);
+        };
+
+        run();
+    }, [pendingPreset]);
     const [editModal, setEditModal] = useState(-1);
     const [presetPopupWindow, setPresetPopupWindow] = useState(0);
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -432,32 +586,31 @@ export default function Pairing() {
             console.log("⚠️ Disconnected — returning to main screen");
             router.back();
         }
-    }, [connectedDevice]);
-    useEffect(() => {
+    }, [connectedDevice]);useEffect(() => {
+        if (!hasLoaded.current || isInitialSync.current) return;
         const preset = presets.find((item) => item.id === currentId);
         const room = rooms.find((item) => item.id === currentId);
 
-        if (currentId >= 0) {
-            if (currentMode === 0) {
-                if (preset) {
-                    setCurrentFrequency(preset?.frequency ?? 0);
-                }
-            } else if (currentMode === 1) {
-                if (room) {
-                    const dimKey = toWords(currentDimension[currentId]) as keyof Room;
-                    const dimValue = room?.[dimKey];
+        if (currentId < 0 || currentMode < 0) return;
 
-                    if (Array.isArray(dimValue)) {
-                        setCurrentFrequency(dimValue[1] ?? 0);
-                    } else {
-                        setCurrentFrequency(0);
-                    }
+        if (currentMode === 0) {
+            if (preset) {
+                setCurrentFrequency(preset?.frequency ?? 0);
+            }
+        } else if (currentMode === 1) {
+            if (room) {
+                const dimKey = toWords(currentDimension[currentId]) as keyof Room;
+                const dimValue = room?.[dimKey];
+
+                if (Array.isArray(dimValue)) {
+                    setCurrentFrequency(dimValue[1] ?? 0);
+                } else {
+                    setCurrentFrequency(0);
                 }
             }
         }
 
     }, [currentId, currentMode, currentDimension, presets, rooms]);
-
     const headerHeight = useHeaderHeight();
 
 
@@ -944,10 +1097,10 @@ export default function Pairing() {
                                                                         <Button
                                                                             onPress={() => {
                                                                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                                                                setCurrentId(item.id)
-                                                                                setCurrentMode(0)
-                                                                                setSetFrequencyModal(false)
-                                                                                setNewFrequency('')
+                                                                                setPendingPreset(item.id);
+                                                                                setSetFrequencyModal(false);
+                                                                                setNewFrequency('');
+                                                                                setPendingRoomDimension(null);
                                                                             }}
                                                                             variant="plain"
                                                                             modifiers={[
@@ -1048,8 +1201,10 @@ export default function Pairing() {
                                             <Host matchContents key={item.id}>
                                                 <ContextMenu activationMethod={'longPress'}>
                                                     <ContextMenu.Items>
-                                                        <Button systemImage={'pencil'}>
-                                                            Edit
+                                                        <Button onPress={() => {
+                                                            setRenameRoomModal({ visible: true, id: item.id, name: item.name });
+                                                        }} systemImage={'pencil'}>
+                                                            Rename
                                                         </Button>
                                                         <Button onPress={() => {
                                                             setRooms(prev => {
@@ -1073,15 +1228,24 @@ export default function Pairing() {
                                                         </Button>
                                                     </ContextMenu.Items>
                                                     <ContextMenu.Trigger>
-
-                                                        <RoomCard setSetFrequencyModal={setSetFrequencyModal}
-                                                                  setNewFrequency={setNewFrequency}
-                                                                  currentDimension={currentDimension}
-                                                                  showCreateModal={showCreateModal} key={i}
-                                                                  currentId={currentId} currentMode={currentMode}
-                                                                  item={item} i={i} setCurrentMode={setCurrentMode}
-                                                                  setCurrentId={setCurrentId}
-                                                                  setCurrentDimension={setCurrentDimension}/>
+                                                        <RoomCard
+                                                            setSetFrequencyModal={setSetFrequencyModal}
+                                                            setNewFrequency={setNewFrequency}
+                                                            currentDimension={currentDimension}
+                                                            showCreateModal={showCreateModal}
+                                                            key={i}
+                                                            currentId={currentId}
+                                                            currentMode={currentMode}
+                                                            item={item}
+                                                            i={i}
+                                                            setCurrentMode={setCurrentMode}
+                                                            setCurrentId={setCurrentId}
+                                                            setCurrentDimension={setCurrentDimension}
+                                                            pendingRoomDimension={pendingRoomDimension}
+                                                            setPendingRoomDimension={setPendingRoomDimension}
+                                                            handleSetRoom={handleSetRoom}
+                                                            pendingPreset={pendingPreset}
+                                                        />
                                                     </ContextMenu.Trigger>
                                                 </ContextMenu>
                                             </Host>
@@ -1237,12 +1401,199 @@ export default function Pairing() {
                                     setNewPresetName('')
                                     setEditModal(-1)
                                 }} variant={'glass'}>
-                                    Submit
+                                    Save
                                 </Button>
                             </Host>
                         </GlassView>
                     </Pressable>
                 </Pressable>
+            </Modal>
+            <Modal
+                animationType="fade"
+                transparent={true}
+                visible={renameRoomModal.visible}
+                onRequestClose={() => setRenameRoomModal(prev => ({ ...prev, visible: false }))}
+            >
+                <Pressable
+                    style={{
+                        flex: 1,
+                        backgroundColor: 'rgba(0,0,0,0.5)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        paddingBottom: 200,
+                        width: '100%'
+                    }}
+                    onPress={() => setRenameRoomModal(prev => ({ ...prev, visible: false }))}
+                >
+                    <Pressable style={{ width: '100%' }} onPress={(e) => e.stopPropagation()}>
+                        <GlassView
+                            style={{
+                                width: '80%',
+                                alignSelf: 'center',
+                                padding: 24,
+                                borderRadius: 24,
+                                gap: 16,
+                            }}
+                            tintColor="rgba(50,50,50,0.7)"
+                            glassEffectStyle="regular"
+                        >
+                            <Text style={[localStyles.text, localStyles.headline]}>
+                                Rename Room
+                            </Text>
+                            <TextInput
+                                placeholder="Room name"
+                                placeholderTextColor="#aaa"
+                                value={renameRoomModal.name}
+                                autoFocus={true}
+                                inputMode={'text'}
+                                maxLength={20}
+                                onChangeText={(text) => setRenameRoomModal(prev => ({ ...prev, name: text }))}
+                                style={{
+                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                    color: 'white',
+                                    borderRadius: 12,
+                                    width: '100%',
+                                    padding: 10,
+                                    fontSize: 16,
+                                }}
+                            />
+                            <Host matchContents>
+                                <Button color={'white'} onPress={() => {
+                                    if (!renameRoomModal.name.trim()) return;
+                                    setRooms(prev => prev.map(r =>
+                                        r.id === renameRoomModal.id ? { ...r, name: renameRoomModal.name.trim() } : r
+                                    ));
+                                    setRenameRoomModal(prev => ({ ...prev, visible: false }));
+                                }} variant={'glass'}>
+                                    Save
+                                </Button>
+                            </Host>
+                        </GlassView>
+                    </Pressable>
+                </Pressable>
+            </Modal>
+            <Modal
+                animationType="fade"
+                transparent={true}
+                visible={movingOverlay.visible}
+                statusBarTranslucent={true}
+            >
+                <View style={{
+                    flex: 1,
+                    backgroundColor: 'rgba(0,0,0,0.75)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                }}>
+                    <GlassView
+                        style={{
+                            width: '75%',
+                            padding: 32,
+                            borderRadius: 28,
+                            alignItems: 'center',
+                            gap: 20,
+                        }}
+                        tintColor="rgba(50,50,50,0.85)"
+                        glassEffectStyle="regular"
+                    >
+                        {movingOverlay.status === 'moving' && (
+                            <>
+                                <View style={{
+                                    width: 52,
+                                    height: 52,
+                                    borderRadius: 26,
+                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                }}>
+                                    <IconSymbol name="waveform.path" color="white" size={26}/>
+                                </View>
+                                <View style={{alignItems: 'center', gap: 8}}>
+                                    <Text style={[localStyles.text, localStyles.headline]}>
+                                        Moving to frequency
+                                    </Text>
+                                    <Text style={[localStyles.text, {fontSize: 32, fontWeight: '800'}]}>
+                                        {movingOverlay.freq.toFixed(1)}Hz
+                                    </Text>
+                                    <Text style={[localStyles.text, localStyles.footnote, {color: 'rgba(255,255,255,0.5)', textAlign: 'center'}]}>
+                                        Please wait while the Acoustic Pod adjusts...
+                                    </Text>
+                                </View>
+                            </>
+                        )}
+
+                        {movingOverlay.status === 'success' && (
+                            <>
+                                <View style={{
+                                    width: 52,
+                                    height: 52,
+                                    borderRadius: 26,
+                                    backgroundColor: 'rgba(52,199,89,0.2)',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                }}>
+                                    <IconSymbol name="checkmark" color="#34C759" size={26}/>
+                                </View>
+                                <View style={{alignItems: 'center', gap: 8}}>
+                                    <Text style={[localStyles.text, localStyles.headline]}>
+                                        Frequency set
+                                    </Text>
+                                    <Text style={[localStyles.text, {fontSize: 32, fontWeight: '800'}]}>
+                                        {movingOverlay.freq.toFixed(1)}Hz
+                                    </Text>
+                                </View>
+                            </>
+                        )}
+
+                        {movingOverlay.status === 'error' && (
+                            <>
+                                <View style={{
+                                    width: 52,
+                                    height: 52,
+                                    borderRadius: 26,
+                                    backgroundColor: 'rgba(255,59,48,0.2)',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                }}>
+                                    <IconSymbol name="xmark" color="#FF3B30" size={26}/>
+                                </View>
+                                <View style={{alignItems: 'center', gap: 8}}>
+                                    <Text style={[localStyles.text, localStyles.headline]}>
+                                        Failed to set frequency
+                                    </Text>
+                                    <Text style={[localStyles.text, localStyles.footnote, {color: 'rgba(255,255,255,0.5)', textAlign: 'center'}]}>
+                                        The Acoustic Pod did not respond. Please try again.
+                                    </Text>
+                                </View>
+                            </>
+                        )}
+                        {movingOverlay.status === 'oor' && (
+                            <>
+                                <View style={{
+                                    width: 52,
+                                    height: 52,
+                                    borderRadius: 26,
+                                    backgroundColor: 'rgba(255,159,10,0.2)',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                }}>
+                                    <IconSymbol name="exclamationmark.triangle" color="#FF9F0A" size={26}/>
+                                </View>
+                                <View style={{alignItems: 'center', gap: 8}}>
+                                    <Text style={[localStyles.text, localStyles.headline]}>
+                                        Out of range
+                                    </Text>
+                                    <Text style={[localStyles.text, {fontSize: 32, fontWeight: '800'}]}>
+                                        {movingOverlay.freq.toFixed(1)}Hz
+                                    </Text>
+                                    <Text style={[localStyles.text, localStyles.footnote, {color: 'rgba(255,255,255,0.5)', textAlign: 'center'}]}>
+                                        This frequency is out of range for this Acoustic Pod.
+                                    </Text>
+                                </View>
+                            </>
+                        )}
+                    </GlassView>
+                </View>
+
             </Modal>
 
         </>

@@ -28,7 +28,6 @@ export default function HomeScreen() {
     const [devicesLoaded, setDevicesLoaded] = React.useState(false);
     const goDevice = React.useRef(-1)
     const [failed, setFailed] = React.useState(0)
-    // const [isReconnecting, setIsReconnecting] = React.useState(false)
 
     useEffect(() => {
         if (goDevice.current > -1) {
