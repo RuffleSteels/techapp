@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from "react";
-import {Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
+import {Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Animated} from "react-native";
 import * as Haptics from 'expo-haptics';
 import {styles} from "../lib/theme";
 import {Stack, useLocalSearchParams, useRouter} from "expo-router";
@@ -15,7 +15,6 @@ import {IconSymbol} from "../lib/ui/icon-symbol";
 import {loadData, saveData} from "../lib/utils";
 import {Preset, Room} from "../lib/types";
 import {useBLE} from "../lib/BLEProvider";
-
 
 const presetss = [
     {
@@ -121,7 +120,7 @@ function RoomCard({
             <Host style={{width: '100%'}}>
                 <Button
                     onPress={() => {
-                        if (parseFloat(item.length[1]) && parseFloat(item.length[1]) < 0) return;
+                        if (parseFloat(String(item.length[1])) && parseFloat(String(item.length[1])) < 0) return;
 
                         const currentDim = pendingRoomDimension?.id === item.id
                             ? pendingRoomDimension.dimension
@@ -134,7 +133,7 @@ function RoomCard({
                             let next = currentDim;
                             for (let i = 1; i <= 3; i++) {
                                 const candidate = (currentDim + i) % 3;
-                                if (parseFloat(dims[candidate]) >= 0) {
+                                if (parseFloat(String(dims[candidate])) >= 0) {
                                     next = candidate;
                                     break;
                                 }
@@ -166,13 +165,13 @@ function RoomCard({
                         <View style={{flexDirection: 'row', gap: 24, justifyContent: 'space-between', alignItems: 'flex-end'}}>
                             <View style={{gap: 2}}>
                                 <Text style={[localStyles.text, localStyles.footnote, {fontWeight: activeDim === 0 ? '800' : '300'}]}>
-                                    Length: {item.length[0]}m — {parseFloat(item.length[1]) ? parseFloat(item.length[1]) < 0 ? 'N/A' : `${parseFloat(item.length[1]).toFixed(1)}Hz` : 0}
+                                    Length: {item.length[0]}m — {parseFloat(String(item.length[1])) ? parseFloat(String(item.length[1])) < 0 ? 'N/A' : `${parseFloat(String(item.length[1])).toFixed(1)}Hz` : 0}
                                 </Text>
                                 <Text style={[localStyles.text, localStyles.footnote, {fontWeight: activeDim === 1 ? '800' : '300'}]}>
-                                    Width: {item.width[0]}m — {parseFloat(item.width[1]) ? parseFloat(item.width[1]) < 0 ? 'N/A' : `${parseFloat(item.width[1]).toFixed(1)}Hz` : 0}
+                                    Width: {item.width[0]}m — {parseFloat(String(item.width[1])) ? parseFloat(String(item.width[1])) < 0 ? 'N/A' : `${parseFloat(String(item.width[1])).toFixed(1)}Hz` : 0}
                                 </Text>
                                 <Text style={[localStyles.text, localStyles.footnote, {fontWeight: activeDim === 2 ? '800' : '300'}]}>
-                                    Height: {item.height[0]}m — {parseFloat(item.height[1]) ? parseFloat(item.height[1]) < 0 ? 'N/A' : `${parseFloat(item.height[1]).toFixed(1)}Hz` : 0}
+                                    Height: {item.height[0]}m — {parseFloat(String(item.height[1])) ? parseFloat(String(item.height[1])) < 0 ? 'N/A' : `${parseFloat(String(item.height[1])).toFixed(1)}Hz` : 0}
                                 </Text>
                             </View>
 
@@ -259,33 +258,43 @@ function toWords(num: number): string {
 export default function Pairing() {
     const {id} = useLocalSearchParams();
     const router = useRouter();
+    const [isReady, setIsReady] = useState(false);
     const previousSelection = useRef<{id: number, mode: number} | null>(null);
     const [devices, setDevices] = useState<any[]>([]);
     const [deviceName, setDeviceName] = useState('');
     const [deviceId, setDeviceId] = useState('');
     const [presets, setPresets] = useState<Preset[]>([]);
     const [rooms, setRooms] = useState<Room[]>([]);
-    const hasMismatch = useRef(false); // ← add this
+    const hasMismatch = useRef(false);
     const [movingOverlay, setMovingOverlay] = useState<{visible: boolean, freq: number, status: 'moving' | 'success' | 'error' | 'oor'}>({
         visible: false, freq: 0, status: 'moving'
     });
     const [renameRoomModal, setRenameRoomModal] = useState<{visible: boolean, id: number, name: string}>({
         visible: false, id: -1, name: ''
     });
+    const animationRef = useRef<Animated.CompositeAnimation | null>(null);
     const {sendMessage, connectedDevice: cd} = useBLE();
+    const { disconnectDevice, connectedDevice } = useBLE();
     const [pendingPreset, setPendingPreset] = useState<number | null>(null);
     const [currentFrequency, _setCurrentFrequency] = useState(0);
     const [currentMode, setCurrentMode] = useState(-1);
     const [currentId, setCurrentId] = useState(-1);
-    const [currentDimension, setCurrentDimension] = useState(
-        Object.fromEntries(
-            roomss.map(room => [room.id, 0]) // 0 = length
-        )
-    );
+    const [currentDimension, setCurrentDimension] = useState({});
     const hasLoaded = useRef(false);
-    const isInitialSync = useRef(true); // ← add this
+    const isInitialSync = useRef(true);
     const [pendingRoomDimension, setPendingRoomDimension] = useState<{id: number, dimension: number} | null>(null);
-    const setCurrentFrequency = async (newFreq: number, isFirst: boolean): Promise<boolean> => {
+    const [editModal, setEditModal] = useState(-1);
+    const [presetPopupWindow, setPresetPopupWindow] = useState(0);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newPresetName, setNewPresetName] = useState('');
+    const [newPresetFreq, setNewPresetFreq] = useState('');
+    const [setFrequencyModal, setSetFrequencyModal] = useState(false);
+    const [newFrequency, setNewFrequency] = useState('');
+    const [newDeviceName, setNewDeviceName] = useState('');
+    const [deviceNameEdit, setDeviceNameEdit] = useState(false);
+    const headerHeight = useHeaderHeight();
+    const loadingOpacity = useRef(new Animated.Value(1)).current;
+    const setCurrentFrequency = async (newFreq: number, isFirst: boolean = false): Promise<boolean> => {
         if (isFirst || currentFrequency === newFreq) {
             _setCurrentFrequency(newFreq);
             return true;
@@ -310,7 +319,6 @@ export default function Pairing() {
                 setTimeout(() => setMovingOverlay(prev => ({ ...prev, visible: false })), 2000);
                 return false;
             } else {
-                // null = timeout or no response — close quietly, don't show error
                 setMovingOverlay(prev => ({ ...prev, visible: false }));
                 return false;
             }
@@ -321,41 +329,30 @@ export default function Pairing() {
         }
     };
 
+    // ── Init ──────────────────────────────────────────────────────────────────
     useEffect(() => {
         const init = async () => {
-            hasMismatch.current = false; // ← reset on each load
+            setCurrentDimension(Object.fromEntries(roomss.map(room => [room.id, 0])))
+            hasMismatch.current = false;
             isInitialSync.current = true;
 
-            let storedDevices = (await loadData('devices'))
-                || [{
-                id: 0,
-                currentId: -1,
-                currentMode: -1,
-                name: 'Den',
-                frequency: 100
-            }];
+            let storedDevices = (await loadData('devices')) || [{ id: 0, currentId: -1, currentMode: -1, name: 'Den', frequency: 100 }];
             const storedRooms = (await loadData('rooms')) || roomss;
             const storedPresets = (await loadData('presets')) || presetss;
             const index = parseInt(id as string);
 
-            const freq = await sendMessage('GET_FREQ')
-            console.log(freq, 'ee')
+            const freq = await sendMessage('GET_FREQ');
             if (freq && parseFloat(freq)) {
-                console.log('okay')
-                const originalFreq = storedDevices[index]?.frequency; // ← save BEFORE the map
+                const originalFreq = storedDevices[index]?.frequency;
 
                 const selectedFreq = (() => {
                     const savedId = storedDevices[index]?.currentId;
                     const savedMode = storedDevices[index]?.currentMode;
-
                     if (savedId < 0 || savedMode < 0) return null;
-
                     if (savedMode === 0) {
-                        // preset
                         const preset = storedPresets.find(p => p.id === savedId);
                         return preset ? preset.frequency : null;
                     } else if (savedMode === 1) {
-                        // room
                         const room = storedRooms.find(r => r.id === savedId);
                         const savedDimension = storedDevices[index]?.currentDimension?.[savedId] ?? 0;
                         const dimKey = toWords(savedDimension) as keyof Room;
@@ -369,191 +366,96 @@ export default function Pairing() {
                     parseFloat(freq).toFixed(1) !== originalFreq?.toFixed(1) ||
                     (selectedFreq !== null && parseFloat(freq).toFixed(1) !== parseFloat(selectedFreq).toFixed(1))
                 ) {
-                    console.log('mismatch detected', parseFloat(freq).toFixed(1), 'vs', originalFreq?.toFixed(1), 'selected freq was', selectedFreq)
                     hasMismatch.current = true;
                 }
 
-                storedDevices = storedDevices.map((d, i) =>  // ← map happens AFTER
+                storedDevices = storedDevices.map(d =>
                     d.deviceId === cd.id
-                        ? {
-                            ...d,
-                            frequency: parseFloat(freq),
-                            ...(hasMismatch.current ? {currentId: -1, currentMode: -1} : {}),
-                        }
+                        ? { ...d, frequency: parseFloat(freq), ...(hasMismatch.current ? { currentId: -1, currentMode: -1 } : {}) }
                         : d
                 );
             }
-
 
             setDevices(storedDevices);
             setRooms(storedRooms);
             setPresets(storedPresets);
 
-
             if (!isNaN(index) && storedDevices[index]) {
-                setDeviceName(storedDevices[index]?.name ?? '');
-
-                if (hasMismatch.current) {
-                    setCurrentId(-1);
-                    setCurrentMode(-1);
-                } else {
-                    setCurrentId(storedDevices[index]?.currentId ?? -1);
-                    setCurrentMode(storedDevices[index]?.currentMode ?? -1);
-                }
-
-                _setCurrentFrequency(storedDevices[index]?.frequency ?? 0);
-                setCurrentDimension(storedDevices[index]?.currentDimension ?? {});
-                setDeviceId(storedDevices[index]?.deviceId ?? '');
+                const d = storedDevices[index];
+                setDeviceName(d?.name ?? '');
+                setNewDeviceName(d?.name ?? '');
+                setCurrentId(hasMismatch.current ? -1 : (d?.currentId ?? -1));
+                setCurrentMode(hasMismatch.current ? -1 : (d?.currentMode ?? -1));
+                _setCurrentFrequency(d?.frequency ?? 0);
+                setCurrentDimension(d?.currentDimension ?? {});
+                setDeviceId(d?.deviceId ?? '');
             } else {
                 setDeviceName('');
-                setCurrentFrequency(0, true);
                 setCurrentId(-1);
                 setCurrentMode(-1);
+                _setCurrentFrequency(0);
             }
 
             hasLoaded.current = true;
-            setTimeout(() => { isInitialSync.current = false; }, 0); // ← let the render cycle finish first
-
-        };
+            setTimeout(() => { isInitialSync.current = false; }, 0);
+            setIsReady(true);
+            animationRef.current = Animated.timing(loadingOpacity, {
+                toValue: 0,
+                delay: 500,
+                duration: 500,
+                useNativeDriver: true,
+            });
+            animationRef.current.start();        };
 
         init();
     }, [id]);
     useEffect(() => {
-        if (!hasLoaded.current || isInitialSync.current) return;
-        const preset = presets.find((item) => item.id === currentId);
+        return () => {
+            animationRef.current?.stop();
+            loadingOpacity.setValue(1);
+        };
+    }, []);
+    // ── Sync all device fields in one shot ────────────────────────────────────
+    useEffect(() => {
+        if (!hasLoaded.current) return;
+        if (!id) return;
+        const parsedId = parseInt(id as string);
+        if (isNaN(parsedId)) return;
 
+        setDevices(prev => {
+            if (!Array.isArray(prev)) return [];
+            return prev.map(item =>
+                item.id === parsedId
+                    ? { ...item, name: deviceName, frequency: currentFrequency, currentMode, currentId, currentDimension }
+                    : item
+            );
+        });
+    }, [deviceName, currentFrequency, currentMode, currentId, currentDimension, id]);
+
+    // ── Persist data ──────────────────────────────────────────────────────────
+    useEffect(() => { if (hasLoaded.current) saveData('devices', devices); }, [devices]);
+    useEffect(() => { if (hasLoaded.current) saveData('presets', presets); }, [presets]);
+    useEffect(() => { if (hasLoaded.current) saveData('rooms', rooms); }, [rooms]);
+
+    // ── React to preset/room selection changes ────────────────────────────────
+    useEffect(() => {
+        if (!hasLoaded.current || isInitialSync.current) return;
         if (currentId < 0 || currentMode < 0) return;
 
         if (currentMode === 0) {
-            if (preset) {
-                setCurrentFrequency(preset?.frequency ?? 0);
+            const preset = presets.find(item => item.id === currentId);
+            if (preset) setCurrentFrequency(preset.frequency);
+        } else if (currentMode === 1) {
+            const room = rooms.find(item => item.id === currentId);
+            if (room) {
+                const dimKey = toWords(currentDimension[currentId]) as keyof Room;
+                const dimValue = room[dimKey];
+                setCurrentFrequency(Array.isArray(dimValue) ? (dimValue[1] ?? 0) : 0);
             }
         }
-        // rooms are handled by the Set button now, not here
+    }, [currentId, currentMode, currentDimension, presets, rooms]);
 
-    }, [currentId, currentMode, presets]);
-    const handleSetRoom = async () => {
-        if (pendingRoomDimension === null) return;
-
-        const room = rooms.find(r => r.id === pendingRoomDimension.id);
-        if (!room) return;
-
-        const dimKey = toWords(pendingRoomDimension.dimension) as keyof Room;
-        const dimValue = room[dimKey];
-        const freq = Array.isArray(dimValue) ? dimValue[1] : 0;
-
-        // Save current selection before attempting
-        previousSelection.current = { id: currentId, mode: currentMode };
-
-        const success = await setCurrentFrequency(freq, false);
-
-        if (success) {
-            setCurrentId(pendingRoomDimension.id);
-            setCurrentMode(1);
-            setCurrentDimension(prev => ({ ...prev, [pendingRoomDimension.id]: pendingRoomDimension.dimension }));
-            setPendingRoomDimension(null);
-        } else {
-            // Restore previous selection on failure
-            setCurrentId(previousSelection.current?.id ?? -1);
-            setCurrentMode(previousSelection.current?.mode ?? -1);
-            setPendingRoomDimension(null);
-        }
-    };
-    // ✅ Only save after initial load
-    useEffect(() => {
-        if (hasLoaded.current) saveData('presets', presets);
-    }, [presets]);
-
-    useEffect(() => {
-        if (hasLoaded.current) saveData('rooms', rooms);
-    }, [rooms]);
-
-    useEffect(() => {
-        if (hasLoaded.current) saveData('devices', devices);
-    }, [devices]);
-
-    useEffect(() => {
-        if (hasLoaded.current) {
-            if (!id) return;
-
-            const parsedId = parseInt(id as string);
-            if (isNaN(parsedId)) return;
-
-            setDevices(prev => {
-                if (!Array.isArray(prev)) return [];
-                return prev.map(item =>
-                    item.id === parsedId ? {...item, name: deviceName} : item
-                );
-            });
-        }
-    }, [deviceName, id]);
-
-    useEffect(() => {
-        if (hasLoaded.current) {
-            if (!id) return;
-
-            const parsedId = parseInt(id as string);
-            if (isNaN(parsedId)) return;
-
-            setDevices(prev => {
-                if (!Array.isArray(prev)) return [];
-                return prev.map(item =>
-                    item.id === parsedId ? {...item, frequency: currentFrequency} : item
-                );
-            });
-        }
-    }, [currentFrequency, id]);
-
-
-    useEffect(() => {
-        if (hasLoaded.current) {
-            if (!id) return;
-
-            const parsedId = parseInt(id as string);
-            if (isNaN(parsedId)) return;
-
-            setDevices(prev => {
-                if (!Array.isArray(prev)) return [];
-                return prev.map(item =>
-                    item.id === parsedId ? {...item, currentMode: currentMode} : item
-                );
-            });
-        }
-    }, [currentMode, id]);
-
-    useEffect(() => {
-        if (hasLoaded.current) {
-            if (!id) return;
-
-            const parsedId = parseInt(id as string);
-            if (isNaN(parsedId)) return;
-
-            setDevices(prev => {
-                if (!Array.isArray(prev)) return [];
-                return prev.map(item =>
-                    item.id === parsedId ? {...item, currentId: currentId} : item
-                );
-            });
-        }
-    }, [currentId, id]);
-
-    useEffect(() => {
-        if (hasLoaded.current) {
-            if (!id) return;
-
-            const parsedId = parseInt(id as string);
-            if (isNaN(parsedId)) return;
-
-            setDevices(prev => {
-                if (!Array.isArray(prev)) return [];
-                return prev.map(item =>
-                    item.id === parsedId ? {...item, currentDimension: currentDimension} : item
-                );
-            });
-        }
-    }, [currentDimension, id]);
-    const { disconnectDevice, connectedDevice } = useBLE();
-
+    // ── Pending preset ────────────────────────────────────────────────────────
     useEffect(() => {
         if (!hasLoaded.current || isInitialSync.current) return;
         if (pendingPreset === null) return;
@@ -561,62 +463,47 @@ export default function Pairing() {
         const run = async () => {
             const preset = presets.find(p => p.id === pendingPreset);
             if (!preset) return;
-
-            const success = await setCurrentFrequency(preset.frequency, false);
-
+            const success = await setCurrentFrequency(preset.frequency);
             if (success) {
                 setCurrentId(pendingPreset);
                 setCurrentMode(0);
             }
-            // on failure, currentId/currentMode remain unchanged
             setPendingPreset(null);
         };
-
         run();
     }, [pendingPreset]);
-    const [editModal, setEditModal] = useState(-1);
-    const [presetPopupWindow, setPresetPopupWindow] = useState(0);
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [newPresetName, setNewPresetName] = useState('');
-    const [newPresetFreq, setNewPresetFreq] = useState('');
-    const [setFrequencyModal, setSetFrequencyModal] = useState(false);
-    const [newFrequency, setNewFrequency] = useState('');
+
+    // ── Disconnect guard ──────────────────────────────────────────────────────
     useEffect(() => {
         if (!connectedDevice) {
-            console.log("⚠️ Disconnected — returning to main screen");
             router.back();
         }
-    }, [connectedDevice]);useEffect(() => {
-        if (!hasLoaded.current || isInitialSync.current) return;
-        const preset = presets.find((item) => item.id === currentId);
-        const room = rooms.find((item) => item.id === currentId);
+    }, [connectedDevice]);
 
-        if (currentId < 0 || currentMode < 0) return;
+    const handleSetRoom = async () => {
+        if (pendingRoomDimension === null) return;
+        const room = rooms.find(r => r.id === pendingRoomDimension.id);
+        if (!room) return;
 
-        if (currentMode === 0) {
-            if (preset) {
-                setCurrentFrequency(preset?.frequency ?? 0);
-            }
-        } else if (currentMode === 1) {
-            if (room) {
-                const dimKey = toWords(currentDimension[currentId]) as keyof Room;
-                const dimValue = room?.[dimKey];
+        const dimKey = toWords(pendingRoomDimension.dimension) as keyof Room;
+        const dimValue = room[dimKey];
+        const freq = Array.isArray(dimValue) ? dimValue[1] : 0;
 
-                if (Array.isArray(dimValue)) {
-                    setCurrentFrequency(dimValue[1] ?? 0);
-                } else {
-                    setCurrentFrequency(0);
-                }
-            }
+        previousSelection.current = { id: currentId, mode: currentMode };
+        const success = await setCurrentFrequency(freq);
+
+        if (success) {
+            setCurrentId(pendingRoomDimension.id);
+            setCurrentMode(1);
+            setCurrentDimension(prev => ({ ...prev, [pendingRoomDimension.id]: pendingRoomDimension.dimension }));
+        } else {
+            setCurrentId(previousSelection.current?.id ?? -1);
+            setCurrentMode(previousSelection.current?.mode ?? -1);
         }
+        setPendingRoomDimension(null);
+    };
 
-    }, [currentId, currentMode, currentDimension, presets, rooms]);
-    const headerHeight = useHeaderHeight();
-
-
-    const [newDeviceName, setNewDeviceName] = useState(deviceName)
-    const [deviceNameEdit, setDeviceNameEdit] = useState(false)
-
+    if (!isReady) return null;
     return (
         <>
             <View
@@ -649,17 +536,18 @@ export default function Pairing() {
                                 borderBottomColor: 'white',
                                 borderBottomWidth: 2
                             }, localStyles.text, localStyles.largeTitle]}
-                        /> : <><Text
-                            style={[localStyles.text, localStyles.largeTitle, {marginBottom: -4}]}>{deviceName}</Text>
-                            <Text style={[localStyles.text, localStyles.footnote]}>Acoustic Pod</Text>
+                        /> : <>
+                            <Text
+                            style={[localStyles.text, localStyles.largeTitle, {marginBottom: -4, zIndex: 1000}]}>{deviceName}</Text>
+                            <Text style={[localStyles.text, localStyles.footnote, { zIndex: 1000}]}>Acoustic Pod</Text>
                         </>
                     }
 
 
                 </View>
             </View>
-
-            <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{paddingTop: 0}}>
+            <ScrollView
+                contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{paddingTop: 0}}>
                 <View style={styles.container}>
 
                     <ImageBackground
@@ -674,7 +562,7 @@ export default function Pairing() {
                         resizeMode="cover"
                     >
 
-                        <View style={localStyles.wrapper}>
+                        <View style={[localStyles.wrapper]}>
                             <Stack.Screen options={{
                                 headerTransparent: true,
                                 headerBlurEffect: 'none',
@@ -686,6 +574,7 @@ export default function Pairing() {
                                 headerLargeStyle: {backgroundColor: "transparent"},
                                 headerBackButtonDisplayMode: 'minimal',
                                 title: 'W',
+                                headerShown: isReady,
 
                                 headerRight: () => (
                                     deviceNameEdit ? <View style={{flexDirection: 'row', gap: 12}}>
@@ -745,14 +634,13 @@ export default function Pairing() {
                                             height: '100%'
                                         }}>
 
-
                                             <ContextMenu>
                                                 <ContextMenu.Items>
-                                                    {/*<Button onPress={() => {*/}
-                                                    {/*    setDeviceNameEdit(true)*/}
-                                                    {/*}} systemImage={'pencil'}>*/}
-                                                    {/*    Rename*/}
-                                                    {/*</Button>*/}
+                                                    <Button onPress={() => {
+                                                        setDeviceNameEdit(true)
+                                                    }} systemImage={'pencil'}>
+                                                        Rename
+                                                    </Button>
                                                     <Button onPress={async () => {
                                                         if (connectedDevice && connectedDevice.id === deviceId) {
                                                             disconnectDevice()
@@ -763,7 +651,6 @@ export default function Pairing() {
                                                         await saveData('devices', devices)
 
                                                         setCurrentId(-1)
-                                                        // router.back()
                                                     }} role={'destructive'} modifiers={[
                                                         foregroundStyle('red')
                                                     ]} systemImage={'trash'}>
@@ -779,18 +666,32 @@ export default function Pairing() {
                                 )
 
 
-                            }}/>
+                            }}/><Host matchContents>
                             <View style={{gap: 24, paddingBottom: 16}}>
-                                <View style={{
+                                <Host style={{
                                     backgroundColor: 'rgba(0,0,0,0.44)',
                                     position: 'absolute',
                                     width: '200%',
                                     height: 1000,
                                     bottom: 0,
+                                    // zIndex: -1000,
+
                                     alignSelf: 'center'
                                 }}>
-                                </View>
+                                {/*<View style={{*/}
+                                {/*    backgroundColor: 'rgba(0,0,0,0.44)',*/}
+                                {/*    position: 'absolute',*/}
+                                {/*    width: '200%',*/}
+                                {/*    height: 1000,*/}
+                                {/*    bottom: 0,*/}
+                                {/*    // zIndex: -1000,*/}
 
+                                {/*    alignSelf: 'center'*/}
+                                {/*}}>*/}
+                                {/*</View>*/}
+                                </Host>
+
+                                <Host matchContents>
                                 <View>
                                     <Text style={[localStyles.text, localStyles.footnote]}>
                                         Current Frequency
@@ -966,17 +867,27 @@ export default function Pairing() {
 
                                     </View>
                                 </View>
-                            </View>
+                        </Host>
 
+                            </View>
+                        </Host>
                             <View style={{gap: 32}}>
                                 <View style={{gap: 12}}>
+                                    <Host matchContents>
+
                                     <View style={{
+                                        // backgroundColor: 'red',
                                         flexDirection: 'row',
                                         width: '100%',
+                                        position: 'relative',
                                         alignItems: 'center',
                                         justifyContent: 'space-between'
                                     }}>
-                                        <Text style={[localStyles.text, localStyles.headline]}>
+
+                                        <Text  style={[{
+                                            left:0,
+                                            zIndex: 10000
+                                        }, localStyles.text, localStyles.headline]}>
                                             Presets
                                         </Text>
                                         <View style={{flexDirection: 'row', gap: 10}}>
@@ -1032,6 +943,7 @@ export default function Pairing() {
                                             </Host>
                                         </View>
                                     </View>
+                                    </Host>
                                     <View style={{marginHorizontal: -16, overflow: 'visible'}}>
                                         <ScrollView
                                             horizontal
@@ -1152,48 +1064,21 @@ export default function Pairing() {
                                 </View>
 
                                 <View style={{gap: 12}}>
+                                    <Host matchContents>
                                     <View style={{
 
                                         flexDirection: 'row',
                                         width: '100%',
                                         alignItems: 'center',
-                                        justifyContent: 'space-between'
+                                        justifyContent: 'space-between',
+                                        zIndex: 1
                                     }}>
+
                                         <Text style={[localStyles.text, localStyles.headline]}>
                                             Rooms
                                         </Text>
-                                        {/*<View style={{flexDirection: 'row', gap: 10}}>*/}
-                                            {/*<Host>*/}
-                                            {/*    <Button*/}
-                                            {/*        onPress={() => {*/}
-                                            {/*            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);*/}
-
-                                            {/*            router.push('/(tabs)/spaces')*/}
-                                            {/*        }}*/}
-                                            {/*        role="default"*/}
-                                            {/*        variant="plain"*/}
-                                            {/*        modifiers={[*/}
-                                            {/*            padding({*/}
-                                            {/*                all: 4,*/}
-                                            {/*            }),*/}
-                                            {/*            glassEffect({*/}
-                                            {/*                glass: {*/}
-                                            {/*                    variant: 'regular',*/}
-                                            {/*                    interactive: true,*/}
-                                            {/*                }*/}
-                                            {/*            }),*/}
-                                            {/*        ]}*/}
-                                            {/*        color={'rgba(100,100,100,0.3)'}*/}
-                                            {/*    >*/}
-                                            {/*        <IconSymbol style={{*/}
-                                            {/*            textAlign: 'center',*/}
-                                            {/*            bottom: 0*/}
-                                            {/*        }} size={30} name="plus" color="white"/>*/}
-
-                                            {/*    </Button>*/}
-                                            {/*</Host>*/}
-                                        {/*</View>*/}
                                     </View>
+                                    </Host>
                                     <View
                                         style={{gap: 16}}
                                     >
@@ -1478,6 +1363,7 @@ export default function Pairing() {
                 visible={movingOverlay.visible}
                 statusBarTranslucent={true}
             >
+
                 <View style={{
                     flex: 1,
                     backgroundColor: 'rgba(0,0,0,0.75)',
@@ -1497,7 +1383,9 @@ export default function Pairing() {
                     >
                         {movingOverlay.status === 'moving' && (
                             <>
-                                <View style={{
+                                {/*<Host matchContents>*/}
+
+                                <Host style={{
                                     width: 52,
                                     height: 52,
                                     borderRadius: 26,
@@ -1506,7 +1394,7 @@ export default function Pairing() {
                                     alignItems: 'center',
                                 }}>
                                     <IconSymbol name="waveform.path" color="white" size={26}/>
-                                </View>
+                                </Host>
                                 <View style={{alignItems: 'center', gap: 8}}>
                                     <Text style={[localStyles.text, localStyles.headline]}>
                                         Moving to frequency
@@ -1518,6 +1406,8 @@ export default function Pairing() {
                                         Please wait while the Acoustic Pod adjusts...
                                     </Text>
                                 </View>
+                                {/*</Host>*/}
+
                             </>
                         )}
 
@@ -1590,15 +1480,24 @@ export default function Pairing() {
                                     </Text>
                                 </View>
                             </>
-                        )}
+                            )}
+
                     </GlassView>
                 </View>
-
             </Modal>
-
+            <Animated.View
+                pointerEvents="none"
+                style={{
+                    width: 10000,
+                    height: 100000,
+                    position: 'absolute',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: '#121212',
+                    opacity: loadingOpacity,
+                    zIndex: 999999999,
+                }}
+            />
         </>
-
-
     );
 }
 
@@ -1609,7 +1508,6 @@ const localStyles = StyleSheet.create({
     },
     warningContainer: {
         paddingHorizontal: 24,
-        // paddingRight: 24,
         paddingVertical: 16,
         marginBottom: 32,
         flexDirection: 'row',
@@ -1628,9 +1526,7 @@ const localStyles = StyleSheet.create({
         paddingHorizontal: 16,
         overflow: "hidden",
         alignItems: "center",
-        // position: "absolute",
         justifyContent: "space-between",
-        // backgroundColor: "rgba(0, 0, 0, 0,8)", // light translucent layer
     },
     wrapper: {
         width: "100%",
@@ -1639,7 +1535,6 @@ const localStyles = StyleSheet.create({
         paddingTop: 16,
         paddingBottom: 32,
         gap: 10,
-        // justifyContent: "space-between"
     },
     titleBox: {
         width: "100%",
@@ -1671,8 +1566,6 @@ const localStyles = StyleSheet.create({
         gap: 10,
     },
     text: {
-
-        // fontWeight: 'regular',
         color: "#fff",
     },
 });

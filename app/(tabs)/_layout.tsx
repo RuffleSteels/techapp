@@ -1,6 +1,7 @@
 import {Icon, Label, NativeTabs} from "expo-router/unstable-native-tabs";
 import {useAnimation} from "../components/AnimationContext";
-import {View} from "react-native";
+import { View} from "react-native";
+import React from "react";
 
 export default function TabsLayout() {
     const {animationRunning} = useAnimation();

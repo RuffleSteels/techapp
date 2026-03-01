@@ -1,4 +1,4 @@
-import React from "react";
+import React, {useState} from "react";
 import {
     ImageBackground,
     Keyboard,
@@ -45,7 +45,7 @@ export default function HomeScreen() {
     const [name, setName] = React.useState('')
     const [triggerAnim, setTriggerAnim] = React.useState(false)
 
-
+    const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
     useFocusEffect(
         React.useCallback(() => {
 
@@ -64,7 +64,14 @@ export default function HomeScreen() {
             };
         }, [])
     );
-
+    const getDisplayValue = (index: number) => {
+        const raw = dims[index].value;
+        const isEmpty = !raw || parseFloat(raw) === 0;
+        if (focusedIndex === index) {
+            return isEmpty ? '' : raw + 'm';
+        }
+        return isEmpty ? '__m' : raw + 'm';
+    };
     return (
         <>
 
@@ -120,7 +127,7 @@ export default function HomeScreen() {
                                                     }]}>
                                                         {item.name}:
                                                     </Text>
-                                                    <View
+                                                    <Host
                                                         style={{
                                                             position: 'absolute',
                                                             left: 0,
@@ -133,7 +140,7 @@ export default function HomeScreen() {
                                                     />
                                                 </View>
 
-                                                <View style={[localStyles.glassBox, {
+                                                <Host style={[localStyles.glassBox, {
                                                     width: 'auto',
                                                     height: 'auto',
 
@@ -166,29 +173,47 @@ export default function HomeScreen() {
                                                                     paddingVertical: 8
                                                                 }]}>
                                                                     <TextInput
-                                                                        placeholder="___"
-                                                                        placeholderTextColor="#aaa"
-                                                                        value={(parseFloat(dims[i].value) === 0 ? '__' : dims[i].value) + 'm'}
+                                                                        placeholder=""
+                                                                        value={getDisplayValue(i)}
                                                                         inputMode={'decimal'}
-                                                                        onChangeText={(text) => {
-                                                                            const textt = text.replace('m', '').replaceAll('_', '')
-                                                                            if (/^[0-9]*\.?[0-9]*$/.test(textt)) {
+                                                                        onFocus={() => {
+                                                                            setFocusedIndex(i);
+                                                                            if (parseFloat(dims[i].value) === 0) {
                                                                                 setDims(prev => {
-                                                                                    const newDims = [...prev]
-                                                                                    newDims[i].value = textt ? textt : '0'
-                                                                                    return newDims
-                                                                                })
+                                                                                    const newDims = [...prev];
+                                                                                    newDims[i].value = '';
+                                                                                    return newDims;
+                                                                                });
                                                                             }
                                                                         }}
-                                                                        selection={{
-                                                                            start: (dims[i].value + 'm').length - 1,
-                                                                            end: (dims[i].value + 'm').length - 1
+                                                                        onBlur={() => {
+                                                                            setFocusedIndex(null);
+                                                                            if (!dims[i].value) {
+                                                                                setDims(prev => {
+                                                                                    const newDims = [...prev];
+                                                                                    newDims[i].value = '0';
+                                                                                    return newDims;
+                                                                                });
+                                                                            }
                                                                         }}
-
+                                                                        onChangeText={(text) => {
+                                                                            const clean = text.replace('m', '').replace(/__/g, '');
+                                                                            if (/^[0-9]*\.?[0-9]*$/.test(clean)) {
+                                                                                setDims(prev => {
+                                                                                    const newDims = [...prev];
+                                                                                    newDims[i].value = clean;
+                                                                                    return newDims;
+                                                                                });
+                                                                            }
+                                                                        }}
+                                                                        selection={
+                                                                            focusedIndex === i
+                                                                                ? { start: dims[i].value.length, end: dims[i].value.length }
+                                                                                : undefined
+                                                                        }
                                                                         style={{
                                                                             color: 'white',
                                                                             width: '100%',
-                                                                            // padding: 10,
                                                                             fontSize: 24,
                                                                             fontWeight: '300'
                                                                         }}
@@ -198,7 +223,7 @@ export default function HomeScreen() {
                                                             </Button>
                                                         </Host>
                                                     </View>
-                                                </View>
+                                                </Host>
                                             </View>
                                         ))
                                     }

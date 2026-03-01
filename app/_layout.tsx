@@ -12,17 +12,33 @@ export default function RootLayout() {
                 <SafeAreaProvider>
                     <View style={{flex: 1, backgroundColor: "#121212"}}>
                         <StatusBar barStyle="light-content" backgroundColor="#121212"/>
-
                         <Stack
                             screenOptions={{
+                                headerTransparent: true,
+                                // headerBlurEffect: 'none',
+                                headerBackButtonDisplayMode: 'minimal',
+                                // headerTitleStyle: { color: 'transparent' },
+                                headerLargeStyle: { backgroundColor: 'transparent' },
+                                headerBackButtonMenuEnabled: false,
+                                // headerTintColor: 'black',
+                                title: '',
                                 headerTintColor: '#fff',
-                                headerTitleStyle: {
-                                    fontWeight: 'bold',
-                                },
-                                contentStyle: {backgroundColor: "#121212"}
+                                    headerTitleStyle: {
+                                        fontWeight: 'bold',
+                                    },
+                                    contentStyle: {backgroundColor: "#121212"}
                             }}
                         >
-                            <Stack.Screen name="(tabs)" options={{gestureEnabled: false, headerShown: false}}/>
+                        {/*<Stack*/}
+                        {/*    screenOptions={{*/}
+                        {/*        headerTintColor: '#fff',*/}
+                        {/*        headerTitleStyle: {*/}
+                        {/*            fontWeight: 'bold',*/}
+                        {/*        },*/}
+                        {/*        contentStyle: {backgroundColor: "#121212"}*/}
+                        {/*    }}*/}
+                        {/*>*/}
+                            <Stack.Screen name="(tabs)" options={{gestureEnabled: false, headerShown: true}}/>
                             <Stack.Screen name="pairing" options={{headerShown: false}}/>
 
 

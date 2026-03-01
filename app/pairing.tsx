@@ -162,6 +162,9 @@ export default function Pairing() {
                             <View style={{height: 42}}>
 
                             </View>
+                            <Host matchContents>
+
+
                             <View style={{gap: 10}}>
                                 <View style={localStyles.titleContainer}>
                                     <View style={localStyles.titleBox}>
@@ -179,6 +182,8 @@ export default function Pairing() {
                                     </Text>
                                 </Text>
                             </View>
+                            </Host>
+                            <Host matchContents>
 
                             <View style={{gap: 16}}>
                                 {
@@ -207,6 +212,7 @@ export default function Pairing() {
                                     ))
                                 }
                             </View>
+                            </Host>
 
 
                         </View>
@@ -303,6 +309,7 @@ export default function Pairing() {
                                         </Text>
                                     </View>
                             }
+
 
 
                             <View style={{width: '100%', alignItems: 'center', paddingBottom: 52}}>

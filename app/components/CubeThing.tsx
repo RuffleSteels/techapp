@@ -337,6 +337,7 @@ export default function CubeThing({ setDims, triggerAnim, setTriggerAnim, dims }
         <Animated.View
             style={[styles.container, cubeStyle, {
                 paddingBottom: (keyboardHeight === 0 || stage === 0) ? 0 : keyboardHeight + 200,
+                overflow: 'visible',  // ← add this
             }]}
         >
             <Animated.View style={[{
@@ -580,6 +581,6 @@ const styles = StyleSheet.create({
         position: "absolute",
         bottom: 212,
         left: 0,
+        overflow: 'visible',  // ← add this
     },
 });
-

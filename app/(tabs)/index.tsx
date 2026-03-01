@@ -28,7 +28,8 @@ export default function HomeScreen() {
     const [devicesLoaded, setDevicesLoaded] = React.useState(false);
     const goDevice = React.useRef(-1)
     const [failed, setFailed] = React.useState(0)
-
+    const navigating = React.useRef(false)
+    const cooldown = React.useRef(true)  // ← ADD
     useEffect(() => {
         if (goDevice.current > -1) {
             router.push({pathname: '/device', params: {id: goDevice.current}})
@@ -36,16 +37,25 @@ export default function HomeScreen() {
             goDevice.current = -1
         }
     }, [connectedDevice]);
+    // Replace your first useFocusEffect:
     useFocusEffect(
         useCallback(() => {
+            // Small delay before allowing taps after returning
+            const timer = setTimeout(() => { navigating.current = false; }, 300);
+
             const init = async () => {
                 const devices = await loadData('devices');
                 if (devices) setDevices(devices);
                 setHidden(false);
-                setIsReconnecting(false); // ← add this
+                setIsReconnecting(false);
                 setDevicesLoaded(true);
             };
             init();
+
+            return () => {
+                navigating.current = true; // lock immediately on blur
+                clearTimeout(timer);
+            };
         }, [])
     );
     useFocusEffect(
@@ -80,6 +90,7 @@ export default function HomeScreen() {
 
                 setHasAttempted(true)
                 setDevicesLoaded(false)
+
             };
             init();
         }, [hasTried,devicesLoaded, connectedDevice])
@@ -128,20 +139,6 @@ export default function HomeScreen() {
                     <View style={localStyles.titleContainer}>
                         <View style={localStyles.titleBox}>
                             <Text style={[localStyles.text, localStyles.largeTitle]}>Home</Text>
-                            <Host style={{
-                                width: 60,
-                                height: '100%'
-                            }}>
-
-                                <Button
-                                    role="default"
-                                    variant="glassProminent"
-                                    color={'rgba(0,0,0,0.6)'}
-
-                                >
-                                    <IconSymbol color={'white'} name="ellipsis"/>
-                                </Button>
-                            </Host>
                         </View>
                         <Text style={[localStyles.text, localStyles.headline]}>My Devices</Text>
                     </View>
@@ -229,7 +226,7 @@ export default function HomeScreen() {
 
                                                 <GlassView key={i} style={[localStyles.glassBox,{
                                                     pointerEvents: !hasTried || isReconnecting ? 'none' : 'all',
-                                                    opacity: !connectedDevice || item.deviceId !== connectedDevice?.id ? .3 : 1 //TODO pointer ecents none, bluetootgh disconnect on app unfocus
+                                                    opacity: !connectedDevice || item.deviceId !== connectedDevice?.id ? .3 : 1
                                                 }]} tintColor={'rgba(50,50,50,.7)'}
                                                            glassEffectStyle="clear">
 
@@ -243,6 +240,11 @@ export default function HomeScreen() {
                                                         }}>
                                                             <Button
                                                                 onPress={async () => {
+                                                                    if (navigating.current) return;
+                                                                    navigating.current = true;
+                                                                    console.log(cooldown.current)
+
+
                                                                     setFailed(false)
                                                                     if (!connectedDevice || item.deviceId !== connectedDevice?.id) {
                                                                         setIsReconnecting(true)
