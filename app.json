@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "techappnewdev",
-    "slug": "techappnewdev",
+    "name": "Acoustic Pod",
+    "slug": "acousticpod",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "techappnewdev",
+    "scheme": "acousticpod",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -14,7 +14,7 @@
         "NSBluetoothPeripheralUsageDescription": "This app needs Bluetooth access to communicate with nearby devices."
       },
       "supportsTablet": true,
-      "bundleIdentifier": "com.rufflesteels.techappnewdev"
+      "bundleIdentifier": "com.rufflesteels.acousticpod"
     },
     "web": {
       "output": "static",
@@ -47,7 +47,7 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT"
       ],
-      "package": "com.rufflesteels.techappnewdev"
+      "package": "com.rufflesteels.acousticpod"
     }
   }
 }

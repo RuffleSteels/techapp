@@ -10,7 +10,7 @@ npx react-native bundle \
   --entry-file node_modules/expo-router/entry.js \
   --bundle-output ios/main.jsbundle \
   --assets-dest ios
-FILE="ios/techappnewdev/AppDelegate.swift"
+FILE="ios/acousticpod/AppDelegate.swift"
 
 # Check that the file exists
 if [ ! -f "$FILE" ]; then

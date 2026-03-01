@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Path to your AppDelegate.swift file
-FILE="ios/techappnewdev/AppDelegate.swift"
+FILE="ios/acousticpod/AppDelegate.swift"
 
 # Check that the file exists
 if [ ! -f "$FILE" ]; then

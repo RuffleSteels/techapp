@@ -36,14 +36,14 @@ export default function HomeScreen() {
             goDevice.current = -1
         }
     }, [connectedDevice]);
-
     useFocusEffect(
         useCallback(() => {
             const init = async () => {
                 const devices = await loadData('devices');
                 if (devices) setDevices(devices);
                 setHidden(false);
-                setDevicesLoaded(true); // ✅ mark ready
+                setIsReconnecting(false); // ← add this
+                setDevicesLoaded(true);
             };
             init();
         }, [])
