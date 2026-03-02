@@ -176,7 +176,10 @@ function RoomCard({
                             </View>
 
                             <View style={{flexGrow: 1, position: 'relative'}}>
-                                <Graph preserveAspectRatio="none" width={'100%'}/>
+                                <Host matchContents>
+                                    <Graph preserveAspectRatio="none" width={'100%'}/>
+                                </Host>
+
                                 {pendingRoomDimension?.id === item.id && (
                                     <View style={{
                                         position: 'absolute',

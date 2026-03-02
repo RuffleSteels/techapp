@@ -1,5 +1,5 @@
 // WireframeCuboid.tsx
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef } from "react";
 import Svg, { Line } from "react-native-svg";
 
 const deg2rad = (deg: number) => (deg * Math.PI) / 180;

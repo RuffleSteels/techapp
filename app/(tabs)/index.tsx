@@ -3,7 +3,6 @@ import {ImageBackground, StyleSheet, Text, View} from "react-native";
 import {GlassView} from "expo-glass-effect";
 import {styles} from "../../lib/theme";
 // @ts-ignore
-// import Pod from "@/assets/images/pod.svg"
 import Pod from "../../assets/images/pod.svg";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
 import manager from "../components/bleManager";
@@ -15,9 +14,6 @@ import {loadData, saveData} from "../../lib/utils";
 import {useFocusEffect} from '@react-navigation/native';
 import {Device} from "../../lib/types";
 import {useBLE} from "../../lib/BLEProvider";
-import * as Haptics from "expo-haptics";
-
-
 
 export default function HomeScreen() {
     const [hidden, setHidden] = React.useState(false);
@@ -321,9 +317,12 @@ export default function HomeScreen() {
                                                                     paddingHorizontal: 16
                                                                 }, localStyles.deviceItemOuterOuter]}>
                                                                     <View style={localStyles.deviceItemDetails}>
-                                                                        <Pod style={
-                                                                            {alignSelf: "center"}
-                                                                        } height={'90%'}/>
+                                                                        <Host matchContents>
+                                                                            <Pod style={
+                                                                                {alignSelf: "center"}
+                                                                            } height={'90%'}/>
+                                                                        </Host>
+
                                                                         <View style={localStyles.deviceItemStuff}>
                                                                             <View>
                                                                                 <Text style={[localStyles.text, localStyles.headline, {

@@ -156,13 +156,11 @@ export default function Pairing() {
                     resizeMode="cover"
                 >
                     <View style={[localStyles.wrapper, {justifyContent: 'space-between'}]}>
-                        <ScrollView style={{
-                            // flexGrow: 1,
-                        }} contentContainerStyle={{gap: 16}}><View style={{height: '100%', gap: 32, paddingHorizontal: 16}}>
+                        <ScrollView  contentContainerStyle={{gap: 16}}><View style={{height: '100%', gap: 32, paddingHorizontal: 16}}>
                             <View style={{height: 42}}>
 
                             </View>
-                            <Host matchContents>
+                            <Host  matchContents>
 
 
                             <View style={{gap: 10}}>
@@ -183,13 +181,15 @@ export default function Pairing() {
                                 </Text>
                             </View>
                             </Host>
-                            <Host matchContents>
+                            {/*<Host s matchContents>*/}
 
-                            <View style={{gap: 16}}>
+                            <View style={{position:'relative', zIndex:10000, gap: 16}}>
                                 {
                                     devices.map((item, i) => (
 
-                                        <GlassView onTouchEnd={async () => {
+                                        <GlassView onTouchStart={()=> {
+                                            console.log('aa')
+                                        }} onTouchEndCapture={async () => {
                                             await connectToDevice(item)
                                         }} key={i} style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
                                                    glassEffectStyle="clear">
@@ -199,11 +199,19 @@ export default function Pairing() {
                                                 alignItems: 'center',
                                                 gap: 16
                                             }}>
-                                                <Pod style={
-                                                    {alignSelf: "center", marginTop: 3}
-                                                } height={'90%'}/>
+                                                <Host
+                                                    matchContents>
+                                                    <Pod style={
+                                                        {alignSelf: "center", marginTop: 3}
+                                                    } height={'90%'}/>
+                                                </Host>
 
-                                                <Text style={[localStyles.text, localStyles.headline]}>{item.name}</Text>
+
+                                                <Host
+                                                    matchContents>
+                                                    <Text style={[localStyles.text, localStyles.headline]}>{item.name}</Text>
+                                                </Host>
+
 
 
                                             </View>
@@ -212,7 +220,7 @@ export default function Pairing() {
                                     ))
                                 }
                             </View>
-                            </Host>
+                            {/*</Host>*/}
 
 
                         </View>
@@ -256,6 +264,7 @@ export default function Pairing() {
                             gap: 32,
                             position: 'absolute',
                             bottom: 0,
+                            // pointerEvents: 'none',
                             // height: '100%',
                             width: '100%',
                             // marginBottom: 52,
@@ -296,18 +305,21 @@ export default function Pairing() {
                                 failed || pairing ?
                                     null
                                     :
-                                    <View style={{
-                                        flexDirection: 'row',
-                                        gap: 16,
-                                        width: '100%',
-                                        alignItems: 'center',
-                                        justifyContent: 'center'
-                                    }}>
-                                        <ActivityIndicator size="large" style={{}} color="#ffffff"/>
-                                        <Text style={[localStyles.text, localStyles.body, localStyles.greyed]}>
-                                            Searching...
-                                        </Text>
-                                    </View>
+                                    <Host matchContents>
+                                        <View style={{
+                                            flexDirection: 'row',
+                                            gap: 16,
+                                            width: '100%',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}>
+                                            <ActivityIndicator size="large" style={{}} color="#ffffff"/>
+                                            <Text style={[localStyles.text, localStyles.body, localStyles.greyed]}>
+                                                Searching...
+                                            </Text>
+                                        </View>
+                                    </Host>
+
                             }
 
 
@@ -415,7 +427,7 @@ export default function Pairing() {
                         tintColor="rgba(50,50,50,0.85)"
                         glassEffectStyle="regular"
                     >
-                        <View style={{
+                        <Host style={{
                             width: 52,
                             height: 52,
                             borderRadius: 26,
@@ -424,7 +436,7 @@ export default function Pairing() {
                             alignItems: 'center',
                         }}>
                             <IconSymbol name="waveform.path" color="white" size={26}/>
-                        </View>
+                        </Host>
                         <View style={{alignItems: 'center', gap: 8}}>
                             <Text style={[localStyles.text, localStyles.headline]}>
                                 Calibrating
@@ -436,7 +448,8 @@ export default function Pairing() {
                         </View>
                     </GlassView>
                 </View>
-            )}</>
+            )}
+        </>
 
     );
 }
@@ -461,6 +474,7 @@ const localStyles = StyleSheet.create({
         width: '100%',
         height: 88,
         flexDirection: 'row',
+        // pointerEvents: 'all',
 
         borderRadius: 24,
         paddingVertical: 12,
