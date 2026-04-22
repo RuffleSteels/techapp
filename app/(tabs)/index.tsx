@@ -15,6 +15,66 @@ import {useFocusEffect} from '@react-navigation/native';
 import {Device} from "../../lib/types";
 import {useBLE} from "../../lib/BLEProvider";
 
+function fToH(f: number): number {
+    const PI = Math.PI;
+
+    const area = PI * (0.115 ** 2 - 0.03 ** 2);
+    const height = 0.185;
+    const A_sleeve = PI * (0.118 ** 2 - 0.115 ** 2);
+
+    const c = 343.0;
+    const r_hole = 0.0125;
+    const N = 5;
+    const L_eff = 0.05 + 1.6 * 0.0125;
+
+    const A_hole = PI * r_hole * r_hole;
+    const C = c / (2.0 * PI);
+
+    const K = (N * A_hole) / L_eff;
+
+    const V = (C * C * K) / (f * f);
+
+    const h = (V - area * height) / (area + A_sleeve);
+
+    return h * 1000.0; // meters → mm
+}
+
+function hToF(h_mm: number): number {
+    const PI = Math.PI;
+
+    const area = PI * (0.115 ** 2 - 0.03 ** 2);
+    const height = 0.185;
+    const A_sleeve = PI * (0.118 ** 2 - 0.115 ** 2);
+
+    const c = 343.0;
+    const r_hole = 0.0125;
+    const N = 5;
+    const L_eff = 0.05 + 1.6 * 0.0125;
+
+    const A_hole = PI * r_hole * r_hole;
+    const C = c / (2.0 * PI);
+
+    const K = (N * A_hole) / L_eff;
+
+    // convert mm → meters
+    const h = h_mm / 1000.0;
+
+    const V = h * (area + A_sleeve) + area * height;
+
+    const f = (C * Math.sqrt(K)) / Math.sqrt(V);
+
+    return f;
+}
+
+/** Convert an actual hardware frequency to the predicted display value via regression ŷ = 0.7884x + 26.71 */
+export function toDisplay(freq: number): string {
+    return (-2.143121 * Math.sqrt(fToH(Math.min(freq,120.7))) + 127.883136).toFixed(1)
+}
+
+/** Inverse: convert a user-entered predicted/display frequency back to the actual hardware frequency */
+export function fromDisplay(predicted: number): number {
+    return parseFloat(hToF(((predicted - 127.883136) / -2.143121)**2).toFixed(1));
+}
 export default function HomeScreen() {
     const [hidden, setHidden] = React.useState(false);
     const router = useRouter();
@@ -25,7 +85,7 @@ export default function HomeScreen() {
     const goDevice = React.useRef(-1)
     const [failed, setFailed] = React.useState(0)
     const navigating = React.useRef(false)
-    const cooldown = React.useRef(true)  // ← ADD
+    const cooldown = React.useRef(true)
     useEffect(() => {
         if (goDevice.current > -1) {
             router.push({pathname: '/device', params: {id: goDevice.current}})
@@ -33,10 +93,8 @@ export default function HomeScreen() {
             goDevice.current = -1
         }
     }, [connectedDevice]);
-    // Replace your first useFocusEffect:
     useFocusEffect(
         useCallback(() => {
-            // Small delay before allowing taps after returning
             const timer = setTimeout(() => { navigating.current = false; }, 300);
 
             const init = async () => {
@@ -49,7 +107,7 @@ export default function HomeScreen() {
             init();
 
             return () => {
-                navigating.current = true; // lock immediately on blur
+                navigating.current = true;
                 clearTimeout(timer);
             };
         }, [])
@@ -61,7 +119,7 @@ export default function HomeScreen() {
             const init = async () => {
                 if (!hasTried) {
                     console.log("⏳ Waiting for BLE attempt...");
-                    return; // exit for now — will rerun when connectedDevice changes
+                    return;
                 }
 
                 console.log("✅ BLE attempted:", connectedDevice?.name);
@@ -69,10 +127,17 @@ export default function HomeScreen() {
                 if (devices) {
                     const connectedDeviceItem = devices.find(d => d.deviceId === connectedDevice?.id)
 
-
                     if (connectedDeviceItem) {
                         console.log('get')
-                        const frequency = await sendMessage('GET_FREQ')
+                        const response = await sendMessage('GET_FREQ');
+                        let frequency = 0
+
+                        if (response && typeof response !== 'string' && 'current' in response) {
+                            frequency = response.current;
+                            console.log(`Current freq is ${frequency}`);
+                        } else {
+                            console.error("Failed to get frequency or got unexpected response:", response);
+                        }
                         console.log(frequency, 'freq')
                         setDevices((prevDevices) => {
                             return prevDevices.map((d) =>
@@ -102,7 +167,7 @@ export default function HomeScreen() {
 
     useEffect(() => {
         console.log(devices)
-         saveData('devices', devices)
+        saveData('devices', devices)
     }, [devices]);
 
     useEffect(() => {
@@ -145,11 +210,7 @@ export default function HomeScreen() {
                         {
                             devices.map((item, i) => (
                                 <Host key={i} style={{
-                                    // width: 60,
-                                    // height: '100%'
                                 }}>
-
-
                                     <ContextMenu activationMethod={'longPress'}>
                                         <ContextMenu.Items>
                                             <Button onPress={async () => {
@@ -160,8 +221,6 @@ export default function HomeScreen() {
                                                     console.log(prev.filter(itemm => itemm.id !== parseInt(item.id)))
                                                     return prev.filter(itemm => itemm.id !== parseInt(item.id))
                                                 })
-
-                                                // router.back()
                                             }} role={'destructive'} modifiers={[
                                                 foregroundStyle('red')
                                             ]} systemImage={'trash'}>
@@ -177,7 +236,6 @@ export default function HomeScreen() {
                                                         height: '100%',
                                                         zIndex: 10,
                                                         pointerEvents: 'none',
-                                                        // backgroundColor: 'red',
                                                         alignItems: 'center',
                                                         justifyContent: 'center'
                                                     }}>
@@ -194,7 +252,6 @@ export default function HomeScreen() {
                                                                     }),
                                                                     glassEffect({
                                                                         glass: {
-
                                                                             tint: 'rgba(255,255,255,0.2)',
                                                                             variant: 'regular',
                                                                             interactive: true,
@@ -202,7 +259,6 @@ export default function HomeScreen() {
                                                                         shape: 'capsule'
                                                                     }),
                                                                 ]}
-                                                                // color={'rgba(255,100,100,0.3)'}
                                                             >
                                                                 <Text style={[localStyles.text, {
                                                                     paddingBottom: 12,
@@ -227,7 +283,6 @@ export default function HomeScreen() {
                                                            glassEffectStyle="clear">
 
                                                     <View style={[localStyles.glassBoxBox, {
-                                                        // opacity
                                                     }]}>
 
                                                         <Host style={{
@@ -240,7 +295,6 @@ export default function HomeScreen() {
                                                                     navigating.current = true;
                                                                     console.log(cooldown.current)
 
-
                                                                     setFailed(false)
                                                                     if (!connectedDevice || item.deviceId !== connectedDevice?.id) {
                                                                         setIsReconnecting(true)
@@ -251,10 +305,8 @@ export default function HomeScreen() {
                                                                         }
                                                                         if (!connectedDevice) {
                                                                             try {
-                                                                                // Optional: cancel any previous pending BLE actions
                                                                                 await manager.cancelDeviceConnection(item.deviceId).catch(() => {});
 
-                                                                                // Ensure Bluetooth is powered on before connecting
                                                                                 const state = await manager.state();
                                                                                 if (state !== 'PoweredOn') {
                                                                                     console.warn("⚠️ Bluetooth is not powered on");
@@ -266,13 +318,12 @@ export default function HomeScreen() {
                                                                                 console.log("🔌 Attempting to connect:", item.deviceId);
 
                                                                                 const device = await manager.connectToDevice(item.deviceId, {
-                                                                                    autoConnect: false, // important: avoid this on iOS
-                                                                                    timeout: 10000, // optional timeout in ms
+                                                                                    autoConnect: false,
+                                                                                    timeout: 10000,
                                                                                 });
 
                                                                                 console.log("✅ Connected to:", device.name);
 
-                                                                                // Discover services and characteristics
                                                                                 await device.discoverAllServicesAndCharacteristics();
 
                                                                                 unsubscribeRx();
@@ -284,9 +335,6 @@ export default function HomeScreen() {
                                                                                 console.error("❌ Failed to connect:", error?.message || error);
                                                                                 setFailed(2);
                                                                                 setIsReconnecting(false);
-
-                                                                                // optional — retry automatically
-                                                                                // setTimeout(() => retryConnect(item.deviceId), 3000);
                                                                             }
                                                                         }
                                                                     }
@@ -298,15 +346,6 @@ export default function HomeScreen() {
 
                                                                 }}
                                                                 variant="plain"
-                                                                modifiers={[
-                                                                    // glassEffect({
-                                                                    //     glass: {
-                                                                    //         variant: 'regular',
-                                                                    //         interactive: true,
-                                                                    //     },
-                                                                    //     shape: 'rectangle',
-                                                                    // }),
-                                                                ]}
                                                             >
                                                                 <View style={[{
                                                                     width: '100%',
@@ -325,21 +364,21 @@ export default function HomeScreen() {
 
                                                                         <View style={localStyles.deviceItemStuff}>
                                                                             <View>
-                                                                                <Text style={[localStyles.text, localStyles.headline, {
-                                                                                    // color: hidden ? '#afafaf' : 'white'
-                                                                                }]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
+                                                                                <Text style={[localStyles.text, localStyles.headline]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
                                                                                 <Text
-                                                                                    style={[localStyles.text, localStyles.subheadline, localStyles.greyed, {
-                                                                                        // color: hidden ? '#afafaf' : 'white'
-                                                                                    }]}>{false ? '------------' : 'Acoustic Pod'}</Text>
+                                                                                    style={[localStyles.text, localStyles.subheadline, localStyles.greyed]}>{false ? '------------' : 'Acoustic Pod'}</Text>
                                                                             </View>
-
 
                                                                             <GlassView style={localStyles.hertzTag}>
                                                                                 <IconSymbol size={28} color={'white'}
                                                                                             name="waveform.path"/>
-                                                                                <Text
-                                                                                    style={[localStyles.text, localStyles.footnote]}>{hidden || !item?.frequency || !hasAttempted ? '-----' : item.frequency.toFixed(1)}Hz</Text>
+                                                                                {/* Display the predicted/display value of the stored actual frequency */}
+                                                                                <Text style={[localStyles.text, localStyles.footnote]}>
+                                                                                    {hidden || !item?.frequency || !hasAttempted
+                                                                                        ? '-----'
+                                                                                        : toDisplay(item.frequency)
+                                                                                    }Hz
+                                                                                </Text>
                                                                             </GlassView>
                                                                         </View>
 
@@ -380,7 +419,6 @@ export default function HomeScreen() {
                                         variant="plain"
                                         modifiers={[
                                             padding({
-                                                // all: 18,
                                             }),
                                             glassEffect({
                                                 glass: {
@@ -515,7 +553,6 @@ const localStyles = StyleSheet.create({
     },
     deviceItemOuterOuter: {
         padding: 12,
-        // paddingVertical:72
     },
     glassBox: {
         width: '100%',
@@ -523,9 +560,7 @@ const localStyles = StyleSheet.create({
         borderRadius: 24,
         overflow: "hidden",
         alignItems: "center",
-        // position: "absolute",
         justifyContent: "center",
-        // backgroundColor: "rgba(0, 0, 0, 0,8)", // light translucent layer
     },
     glassBoxBox: {
         width: '100%',
@@ -533,13 +568,10 @@ const localStyles = StyleSheet.create({
         borderRadius: 16,
         overflow: "hidden",
         alignItems: "center",
-        // position: "absolute",
         justifyContent: "center",
-        // backgroundColor: "rgba(0, 0, 0, 0,8)", // light translucent layer
     },
     warningContainer: {
         paddingHorizontal: 24,
-        // paddingRight: 24,
         paddingVertical: 16,
         marginBottom: 32,
         flexDirection: 'row',

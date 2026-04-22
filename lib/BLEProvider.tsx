@@ -19,7 +19,7 @@ interface BLEContextType {
     unsubscribeRx: () => void;
     disconnectDevice: () => void;
     connectDevice: (device: Device) => Promise<Device | null>;
-    sendMessage: (message: string, reqName?: Device | null) => Promise<string | null>;
+    sendMessage: (message: string, reqName?: Device | null) => Promise<string | { current: number; min: number; max: number } | null>;
     hasTried: boolean;
     hasBonded: number;
     lastDevice: string | null;
@@ -40,6 +40,7 @@ export const BLEProvider = ({ children }) => {
 
     // Tracks whether automatic reconnection has already been attempted
     const [hasTried, setHasTried] = useState<boolean>(false);
+    const rxBuffer = useRef<string>("");
 
     // Used to indicate whether secure pairing (PIN) succeeded
     const [hasBonded, setHasBonded] = useState<number>(-1);
@@ -60,9 +61,18 @@ export const BLEProvider = ({ children }) => {
       Stores outgoing commands while waiting for a response from the Arduino.
       This enables reliable request–response communication.
     */
-    const pendingRequests = useRef(
-        new Map<string, { resolve: (val: string | null) => void; timeoutId: number }>()
-    ).current;
+// Define the type once so it's clean
+    type FreqData = {
+        current: number;
+        min: number;
+        max: number;
+    };
+
+// Use a ref so the Map persists across component re-renders!
+    const pendingRequests = useRef(new Map<string, {
+        resolve: (value: string | FreqData | null) => void;
+        timeoutId: NodeJS.Timeout
+    }>());
 
     // Used to distinguish between user disconnects and signal loss
     const isManualDisconnect = useRef(false);
@@ -147,6 +157,7 @@ export const BLEProvider = ({ children }) => {
             rxSubscription.current.remove();
             rxSubscription.current = null;
         }
+        rxBuffer.current = ""; // ← add this
     };
 
     /*
@@ -204,8 +215,21 @@ export const BLEProvider = ({ children }) => {
 
                 // Decode Base64 data sent from the Arduino
                 if (characteristic?.value) {
-                    const value = atob(characteristic.value);
-                    callback(value);
+                    const chunk = atob(characteristic.value);
+                    rxBuffer.current += chunk;
+
+                    console.log(rxBuffer.current)
+
+                    // Process all complete lines in the buffer
+                    let newlineIndex: number;
+                    while ((newlineIndex = rxBuffer.current.indexOf('\n')) !== -1) {
+                        const completeLine = rxBuffer.current.substring(0, newlineIndex);
+                        rxBuffer.current = rxBuffer.current.substring(newlineIndex + 1);
+
+                        if (completeLine.trim().length > 0) {
+                            callback(completeLine.trim());
+                        }
+                    }
                 }
             }
         );
@@ -282,36 +306,57 @@ export const BLEProvider = ({ children }) => {
 
             const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
             const RX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-
-            // Subscribe to incoming UART messages sent by the device
-            // This listens for responses such as "GET_FREQ:100.0" or "SET_FREQ:OK"
-            // Which are a reply to messages sent by the app, such as "SET_FREQ:100.0"
+// Subscribe to incoming UART messages sent by the device
+// This listens for responses such as "GET_FREQ:100.0,45.1,150.9" or "SET_FREQ:OK"
             subscribeToRx(
                 connected,
                 UART_SERVICE_UUID,
                 RX_CHAR_UUID,
                 (value) => {
                     const trimmed = value.trim();
+                    
+                    // ADDED LOGS: See exactly what the Arduino is sending back
+                    console.log(`[BLE RX RAW] Received: "${value}"`);
+
                     const [header, payload] = trimmed.split(":");
 
-                    if (pendingRequests.has(header)) {
-                        const { resolve, timeoutId } = pendingRequests.get(header)!;
+                    if (pendingRequests.current.has(header)) {
+                        const { resolve, timeoutId } = pendingRequests.current.get(header)!;
+
+
 
                         if (payload?.trim() === "WAIT") {
                             // Don't resolve — just extend the timeout by 15s
-                            console.log('Waiting for response...')
+                            console.log('Waiting for response...');
                             clearTimeout(timeoutId);
                             const newTimeoutId = setTimeout(() => {
-                                pendingRequests.delete(header);
+                                pendingRequests.current.delete(header);
                                 resolve(null);
                             }, 15000);
-                            pendingRequests.set(header, { resolve, timeoutId: newTimeoutId });
+                            pendingRequests.current.set(header, { resolve, timeoutId: newTimeoutId });
                         } else {
                             // Normal response — resolve and clean up
                             clearTimeout(timeoutId);
-                            pendingRequests.delete(header);
-                            resolve(payload);
+                            pendingRequests.current.delete(header);
+
+                            // --- NEW PARSING LOGIC FOR GET_FREQ ---
+                            if (header === "GET_FREQ" && payload) {
+                                // Split the comma-separated string into an array
+                                const [currentStr, minStr, maxStr] = payload.split(",");
+
+                                // Resolve as a structured object, converting the strings to numbers
+                                resolve({
+                                    current: parseFloat(currentStr),
+                                    min: parseFloat(minStr),
+                                    max: parseFloat(maxStr)
+                                });
+                            } else {
+                                // For everything else (like "OK" or "ERR"), just resolve the raw payload string
+                                resolve(payload);
+                            }
                         }
+                    } else {
+                        console.log(`[BLE RX] Ignored: No pending request found for header "${header}"`);
                     }
                 }
             );
@@ -334,8 +379,8 @@ export const BLEProvider = ({ children }) => {
     // Sends a command to the device over Bluetooth and waits for a response.
     const sendMessage = async (
         message: string,
-        dev: Device | null = connectedDevice
-    ): Promise<string | null> => {
+        dev: Device | null = connectedDevice,
+    ): Promise<string | FreqData | null> => {
 
         // Stop immediately if no device is currently connected
         if (!dev) return null;
@@ -351,28 +396,30 @@ export const BLEProvider = ({ children }) => {
 
         // If a previous command with the same header is still waiting,
         // cancel it to avoid conflicting responses
-        if (pendingRequests.has(header)) {
-            const { resolve, timeoutId } = pendingRequests.get(header)!;
+        if (pendingRequests.current.has(header)) {
+            const { resolve, timeoutId } = pendingRequests.current.get(header)!;
             clearTimeout(timeoutId);
             resolve(null);
-            pendingRequests.delete(header);
+            pendingRequests.current.delete(header);
         }
 
         /*
           Create a promise that will resolve when the Arduino responds.
           The response is matched using the command header.
         */
-        const promise = new Promise<string | null>((resolve) => {
+        const promise = new Promise<string | FreqData | null>((resolve) => {
 
             // Timeout ensures the app does not wait forever for a response
             const timeoutId = setTimeout(() => {
-                pendingRequests.delete(header);
+                console.log(`[BLE TX] ⚠️ Request timed out waiting for Arduino to reply to: "${header}"`);
+                pendingRequests.current.delete(header);
+                rxBuffer.current = "";  // ← clear stale partial data
                 resolve(null);
             }, 5000);
 
             // Store this request so it can be resolved
             // when a matching response is received via RX
-            pendingRequests.set(header, { resolve, timeoutId });
+            pendingRequests.current.set(header, { resolve, timeoutId });
         });
 
         // Send the command to the Arduino using the UART TX characteristic

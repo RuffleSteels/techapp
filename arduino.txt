@@ -1,0 +1,1126 @@
+#include <bluefruit.h>
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+#include <Adafruit_TinyUSB.h>
+#include <TMCStepper.h>
+#include <math.h>
+
+//TODO when starting from scratch (after upload etc) and calibrated, dont let go down or calibrate again! (if calibrate is pressed, then ccw up a bit and calibrate)
+using namespace Adafruit_LittleFS_Namespace;
+#define R_SENSE 0.11f
+#define MAX_HEIGHT 120.0f  // mm
+#define MIN_HEIGHT 0.0f
+TMC2209Stepper driver(&Serial1, R_SENSE, 0b00);
+
+float max_freq = 0.0f;
+float min_freq = 0.0f;
+const float area = PI * (0.115f * 0.115f - 0.03f * 0.03f);
+const float height = 0.185f;
+const float A_sleeve = PI * (0.118f * 0.118f - 0.115f * 0.115f);
+
+// Helmholtz / acoustic constants
+const float c = 343.0f;        // speed of sound (m/s)
+const float r_hole = 0.0125f;  // hole radius (m)
+const int N = 5;               // number of holes
+const float L_eff = 0.05f + 1.6f * 0.0125f;
+
+// Convert frequency (Hz) to required tube extension h (meters)
+float f_to_h(float f) {
+  float C = c / (2.0f * PI);
+  float A_hole = PI * r_hole * r_hole;
+
+  float numerator =
+    (N * A_hole) / (L_eff * powf(f / C, 2.0f))
+    - area * height;
+
+  float denominator = area + A_sleeve;
+
+  float h = numerator / denominator;
+  return h;
+}
+
+float h_to_f(float h_mm) {
+  float h = h_mm / 1000.0f;  // mm → meters
+
+  float V = area * height + h * (area + A_sleeve);
+
+  float A_hole = PI * r_hole * r_hole;
+  float C = c / (2.0f * PI);
+
+  float f = C * sqrt((N * A_hole) / (V * L_eff));
+  return f;
+}
+
+void setupTMC() {
+  driver.begin();
+  driver.toff(4);            // Enable driver
+  driver.rms_current(1200);  // SAFE for NEMA17
+  driver.microsteps(8);
+
+  driver.en_spreadCycle(false);
+  driver.pwm_autoscale(true);
+  driver.pwm_autograd(true);
+  driver.pwm_freq(2);
+
+  driver.TCOOLTHRS(0xFFFFF);  // Enable stall at low speed
+  driver.SGTHRS(10);          // Sensitivity (tune later)
+
+  Serial.print("TMC version: 0x");
+  Serial.println(driver.version(), HEX);
+}
+
+// --- Position Tracking ---
+// 8mm Lead / (200 steps * 16 microsteps) = 0.0025 mm/step
+const float MM_PER_STEP = 0.005;
+unsigned long lastToneUpdate = 0;
+// CHANGED: Use float to prevent "rounding down" errors
+unsigned long motionStartTime = 0;
+unsigned long motionTimeout = 0;
+float totalSteps = 0.0;
+float heightMM = 0.0;
+const int LATCH_PIN = 8;
+const int BUTTON_PIN = 5;
+const int LED_PIN = 6;
+const int EN_PIN = 4;
+const int DIR_PIN = 0;
+const int STEP_PIN = 1;
+const int RX_PIN = 2;
+const int TX_PIN = 3;
+const int ENDSTOP_PIN = 7;
+bool freqCommandActive = false;
+// --- Ramping Settings ---
+// --- RAMPING SETTINGS ---
+const int ACCEL_INCREMENT = 6;     // Changed from 100 to 6
+const int ACCEL_INTERVAL_MS = 10;  // Keep at 10ms
+const int MIN_SPEED = 200;         // Starting floor
+const int MAX_SAFE_SPEED = 25000;
+bool lastEndstopState = LOW;
+bool wasPressed = false;
+bool pressFlag = false;
+bool longPressTriggered = false;
+bool pairingMode = false;
+bool connected = false;
+bool ledOnn = false;
+bool ledState = false;
+float savedFreq = 100.0;
+unsigned long startupIgnoreUntil = 0;
+unsigned long pressStartTime = 0;
+unsigned long lastBlink = 0;
+unsigned long pairingModeExpires = 0;
+bool switched = false;
+bool calibration = false;
+bool isCalibrated = false;
+
+// Motor State Variables
+volatile bool motorRunning = false;
+long targetSpeed = 0;
+long currentSpeed = 0;
+bool targetDirCW = true;
+unsigned long lastRampTime = 0;
+
+bool hasMoved = false;
+
+File myFile(InternalFS);
+BLEDis bledis;
+BLEUart bleuart;
+
+
+// This function controls the speed, direction and smooth acceleration
+// of the NEMA 17 stepper motor using the XIAO nRF52840 and TMC2209 driver.
+// It is called repeatedly in the main loop every 10ms
+
+void updateMotor() {
+  // Prevent motion past limits
+  if (heightMM >= MAX_HEIGHT && !targetDirCW) targetSpeed = 0;
+  // Get the current time in milliseconds from the microcontroller
+  unsigned long now = millis();
+
+  // Only update the motor speed every ACCEL_INTERVAL_MS milliseconds
+  // This creates a controlled acceleration ramp instead of just sudden jumps
+  if (now - lastRampTime >= ACCEL_INTERVAL_MS) {
+    lastRampTime = now;
+
+    /* STOPPING THE MOTOR */
+    // If the target speed is zero, the motor should stop.
+    if (targetSpeed == 0) {
+      currentSpeed = 0;            // Reset current speed
+      noTone(STEP_PIN);            // Stop generating step pulses
+      digitalWrite(EN_PIN, HIGH);  // Disable TMC2209 driver (saves heat and power)
+      motorRunning = false;        // Record motor is no longer running
+      return;
+    }
+
+    /* HANDLE DIRECTION CHANGE */
+    // Read the current direction pin state
+    bool currentDirPinState = digitalRead(DIR_PIN);
+
+    // Convert desired direction into HIGH or LOW
+    bool desiredDirPinState = targetDirCW ? HIGH : LOW;
+
+    // If motor is moving AND direction needs to change then stop motor before switching direction
+    if (currentSpeed > 0 && currentDirPinState != desiredDirPinState) {
+      currentSpeed = 0;
+      noTone(STEP_PIN);                           // Stop pulses
+      digitalWrite(DIR_PIN, desiredDirPinState);  // Set new direction
+      return;
+    }
+
+    /* STARTING FROM STATIONARY */
+    // If motor is currently off but a speed is requested
+    if (currentSpeed == 0) {
+      digitalWrite(DIR_PIN, desiredDirPinState);
+      digitalWrite(EN_PIN, LOW);
+
+      currentSpeed = MIN_SPEED;
+      noTone(STEP_PIN);
+      tone(STEP_PIN, currentSpeed);
+      motorRunning = true;
+
+      // ---- Motion timeout calculation ----
+      float maxTravelMM = MAX_HEIGHT - MIN_HEIGHT;
+      float maxSteps = maxTravelMM / MM_PER_STEP;
+
+      float secondsAt1000 = maxSteps / 1000.0f;
+      motionTimeout = (unsigned long)(secondsAt1000 * 1000.0f * 1.5f);  // 1.5x safety margin
+      motionStartTime = millis();
+
+      return;
+    }
+
+    /* ACCELERATING UP TO TARGET SPEED */
+    if (currentSpeed < targetSpeed) {
+      currentSpeed += ACCEL_INCREMENT;  // Increase speed gradually
+
+      // Prevent overshooting the target
+      if (currentSpeed > targetSpeed)
+        currentSpeed = targetSpeed;
+
+      // Update pulse frequency to new speed
+      if (millis() - lastToneUpdate > 40) {
+        tone(STEP_PIN, currentSpeed);
+        lastToneUpdate = millis();
+      }
+    }
+
+    /* DECELERATING DOWN TO TARGET SPEED */
+    else if (currentSpeed > targetSpeed) {
+      currentSpeed -= ACCEL_INCREMENT;  // Reduce speed gradually
+
+      // Prevent dropping below minimum reliable speed
+      if (currentSpeed < MIN_SPEED)
+        currentSpeed = MIN_SPEED;
+
+      // Update pulse frequency
+      if (millis() - lastToneUpdate > 40) {
+        tone(STEP_PIN, currentSpeed);
+        lastToneUpdate = millis();
+      }
+    }
+  }
+}
+unsigned long lastPositionUpdate = 0;
+
+
+void trackPosition() {
+  unsigned long now = micros();
+
+  // Initialize timer on first run
+  if (lastPositionUpdate == 0) {
+    lastPositionUpdate = now;
+    return;
+  }
+
+  // Calculate time passed (in seconds)
+  float deltaTime = (now - lastPositionUpdate) / 1000000.0;
+
+  // Only calculate if motor is theoretically moving
+  if (currentSpeed > 0) {
+    float stepsMoved = (float)currentSpeed * deltaTime;
+
+    // Accumulate the steps (Decimals are now kept!)
+    if (targetDirCW) {
+      totalSteps -= stepsMoved;  // Moving CW (usually Down)
+    } else {
+      totalSteps += stepsMoved;  // Moving CCW (usually Up)
+    }
+
+    // Update Height
+    heightMM = totalSteps * MM_PER_STEP;
+    // HARD LIMITS (never exceed travel)
+    if (heightMM >= MAX_HEIGHT && !targetDirCW) {
+      Serial.println("🛑 Reached MAX height");
+      targetSpeed = 0;
+    }
+
+    // Clamp value to avoid drift
+    heightMM = constrain(heightMM, MIN_HEIGHT, MAX_HEIGHT);
+    totalSteps = heightMM / MM_PER_STEP;
+  }
+
+  lastPositionUpdate = now;
+}
+void moveToHeightMM(float targetMM) {
+  targetMM = constrain(targetMM, MIN_HEIGHT, MAX_HEIGHT);
+
+  float deltaMM = targetMM - heightMM;
+
+  if (abs(deltaMM) < 0.1f) {
+    Serial.println("Already at target height.");
+    return;
+  }
+
+  bool dirUp = (deltaMM > 0);
+  targetDirCW = !dirUp;
+
+  Serial.print("Moving to ");
+  Serial.print(targetMM, 2);
+  Serial.println(" mm");
+
+  // ---- Timeout calculation ----
+  float distance = abs(deltaMM);
+  float maxSteps = distance / MM_PER_STEP;
+  float secondsAt1000 = maxSteps / 1000.0f;
+
+  unsigned long startTime = millis();
+  unsigned long timeout = (unsigned long)(secondsAt1000 * 1000.0f * 2.0f);
+  // 2x safety margin
+
+  float lastHeight = heightMM;
+  unsigned long lastMoveCheck = millis();
+
+  while (abs(heightMM - targetMM) > 0.15f) {
+
+    // ---- TIMEOUT ESCAPE ----
+    if (millis() - startTime > timeout) {
+      Serial.println("⚠️ Move timeout — aborting");
+      break;
+    }
+
+    // ---- HEIGHT LIMIT ESCAPE ----
+    if (heightMM >= MAX_HEIGHT && !targetDirCW) {
+      Serial.println("⚠️ Hit MAX height");
+      break;
+    }
+
+    if (heightMM <= MIN_HEIGHT && targetDirCW) {
+      Serial.println("⚠️ Hit MIN height");
+      break;
+    }
+
+    // ---- STALL DETECTION ----
+    if (millis() - lastMoveCheck > 500) {
+      if (abs(heightMM - lastHeight) < 0.05f) {
+        Serial.println("⚠️ No movement detected — aborting");
+        break;
+      }
+      lastHeight = heightMM;
+      lastMoveCheck = millis();
+    }
+
+    float error = abs(heightMM - targetMM);
+    float speed;
+
+    if (error > 30.0f) {
+      speed = 3000;
+    } else if (error > 10.0f) {
+      speed = 1500;
+    } else if (error > 3.0f) {
+      speed = 600;
+    } else {
+      speed = 200;
+    }
+
+    targetSpeed = speed;
+
+    updateMotor();
+    trackPosition();
+  }
+
+  // ---- STOP MOTOR ----
+  targetSpeed = 0;
+  updateMotor();
+  digitalWrite(EN_PIN, HIGH);
+  motorRunning = false;
+
+  Serial.println("Move finished or aborted.");
+}
+bool exCalibration = false;
+void handleSerialCommands() {
+  static char c_buffer[32];  // Fixed memory allocation
+  static int index = 0;
+  freqCommandActive = false;
+  while (Serial.available() && !calibration) {
+    char c = Serial.read();
+    if (c == '\n') {
+      c_buffer[index] = '\0';  // Terminate the string
+      String cmd = String(c_buffer);
+      cmd.trim();
+      cmd.toLowerCase();
+
+      // THE FIX: Reset hardware timer before processing
+      noTone(STEP_PIN);
+
+      if (cmd.startsWith("cw") && !isCalibrated && !switched) {
+        hasMoved = true;
+        isCalibrated = false;
+        uint32_t speed = cmd.substring(2).toInt();
+        speed = constrain(speed, MIN_SPEED, MAX_SAFE_SPEED);
+        targetDirCW = true;
+        targetSpeed = speed;
+        Serial.print("▶ CW ");
+        Serial.println(speed);
+      } else if (cmd.startsWith("ccw")) {
+        hasMoved = true;
+        isCalibrated = false;
+
+        uint32_t speed = cmd.substring(3).toInt();
+        speed = constrain(speed, MIN_SPEED, MAX_SAFE_SPEED);
+        targetDirCW = false;
+        targetSpeed = speed;
+        Serial.print("▶ CCW ");
+        Serial.println(speed);
+      } else if (cmd == "stop") {
+        targetSpeed = 0;
+        digitalWrite(EN_PIN, HIGH);
+        Serial.println("⛔ stopped");
+      } else if (cmd == "calibration" && !isCalibrated) {
+        hasMoved = true;
+        calibration = true;
+        if (switched) {
+          exCalibration = true;
+          uint32_t speed = constrain(500, MIN_SPEED, MAX_SAFE_SPEED);
+          targetDirCW = false;
+          targetSpeed = speed;
+          Serial.print("Starting calibration:");
+          Serial.print("▶ CWW ");
+          Serial.println(speed);
+        } else {
+          uint32_t speed = constrain(3000, MIN_SPEED, MAX_SAFE_SPEED);
+          targetDirCW = true;
+          targetSpeed = speed;
+          Serial.print("Starting calibration:");
+          Serial.print("▶ CW ");
+          Serial.println(speed);
+        }
+
+      } else if (cmd == "ls") {
+        Serial.print("📏 Current height: ");
+        Serial.print(heightMM, 3);
+        Serial.println(" mm");
+      } else if (cmd.startsWith("freq")) {
+
+        if (freqCommandActive) return;  // Prevent repeat execution
+        freqCommandActive = true;
+
+        float freq = cmd.substring(4).toFloat();
+
+        float h_m = f_to_h(freq);
+        float h_mm = h_m * 1000.0f;
+
+        if (h_mm > MAX_HEIGHT) {
+          Serial.print("⚠️ Could not reach that frequency, going to ");
+          Serial.print(max_freq, 1);
+          Serial.println(" Hz instead");
+          hasMoved = true;
+          isCalibrated = false;
+
+          moveToHeightMM(MAX_HEIGHT);
+        } else if (h_mm < MIN_HEIGHT) {
+          Serial.print("⚠️ Could not reach that frequency, going to ");
+          Serial.print(min_freq, 1);
+          Serial.println(" Hz instead");
+          hasMoved = true;
+          isCalibrated = false;
+
+          moveToHeightMM(MIN_HEIGHT);
+        } else {
+          Serial.print("Target frequency: ");
+          Serial.print(freq, 1);
+          Serial.println(" Hz");
+
+          Serial.print("Required extension: ");
+          Serial.print(h_mm, 2);
+          Serial.println(" mm");
+          hasMoved = true;
+          isCalibrated = false;
+
+          moveToHeightMM(h_mm);
+        }
+      }
+      index = 0;  // Reset index for next command
+    } else if (index < 31 && c != '\r') {
+      c_buffer[index++] = c;
+    }
+  }
+}
+
+// Runs when device connects via Bluetooth
+void connect_callback(uint16_t conn_handle) {
+  connected = true;
+  pairingModeExpires = millis() + 120000;
+  // Get information about the connected device
+  BLEConnection* connection = Bluefruit.Connection(conn_handle);
+
+  // Create a space to store the name of the connected device
+  char central_name[32] = { 0 };
+
+  // Read the name of the device that connected
+  connection->getPeerName(central_name, sizeof(central_name));
+
+  // Print name of connected device in the console
+  Serial.print("Connected to ");
+  Serial.println(central_name);
+}
+
+// This function runs when the Bluetooth connection is lost
+void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
+
+  // These values are not needed, so they are ignored
+  (void)conn_handle;
+  (void)reason;
+
+  // Record that the device is no longer connected
+  connected = false;
+
+  // Allow pairing again for the next 2 minutes
+  pairingModeExpires = millis() + 120000;
+
+  // Print a blank line for readability
+  Serial.println();
+
+  // Print a message explaining that the device disconnected
+  Serial.print("Disconnected, reason = 0x");
+  Serial.println(reason, HEX);
+}
+
+// Turns off parts of the device safely
+void shutdown() {
+  targetSpeed = 0;
+  noTone(STEP_PIN);
+  digitalWrite(EN_PIN, HIGH);  // 🔴 disable driver
+
+  // Turn off the indicator LED
+  digitalWrite(LED_PIN, LOW);
+
+  // Turn off the latch control pin
+  digitalWrite(LATCH_PIN, LOW);
+
+  // Short delay to allow hardware to settle
+  delay(50);
+}
+
+// Save a frequency value so it is remembered after power is turned off
+int setFrequency(float freq) {
+  if (InternalFS.exists("/data.txt")) InternalFS.remove("/data.txt");
+  File testFile(InternalFS);
+  if (!testFile.open("/data.txt", FILE_O_WRITE)) {
+    Serial.println("❌ Failed to open file for writing");
+    return -1;
+  }
+  testFile.close();
+
+  float h_m = f_to_h(freq);
+  float h_mm = h_m * 1000.0f;
+
+  Serial.print("Target frequency: ");
+  Serial.print(freq, 1);
+  Serial.println(" Hz");
+
+  Serial.print("Required extension: ");
+  Serial.print(h_mm, 2);
+  Serial.println(" mm");
+  hasMoved = true;
+  isCalibrated = false;
+
+  moveToHeightMM(h_mm);
+
+
+  // Open the file for writing
+  if (InternalFS.exists("/data.txt")) InternalFS.remove("/data.txt");
+  File writeFile(InternalFS);
+  if (writeFile.open("/data.txt", FILE_O_WRITE)) {
+    writeFile.println(freq, 6);
+    writeFile.println(totalSteps, 3);
+    writeFile.close();
+    Serial.print("✅ Wrote value ");
+    Serial.println(freq, 6);
+  } else {
+    Serial.println("❌ Failed to save position after move");
+    return -1;
+  }
+
+
+  return 0;
+}
+
+// Load the saved frequency value when the device starts
+float loadFrequency() {
+
+  // Default frequency if no saved value exists
+  float freq = max_freq;
+  float loadedSteps = 0.0f;
+
+  // Try to open the saved file
+  if (myFile.open("/data.txt", FILE_O_READ)) {
+
+    // Read first line (frequency)
+    if (myFile.available()) {
+      String line1 = myFile.readStringUntil('\n');
+      if (line1.length() > 0) {
+        freq = line1.toFloat();
+      }
+    }
+
+    // Read second line (totalSteps)
+    if (myFile.available()) {
+      String line2 = myFile.readStringUntil('\n');
+      if (line2.length() > 0) {
+        loadedSteps = line2.toFloat();
+      }
+    }
+
+    myFile.close();
+
+  } else {
+    // If no file exists, use the default value
+    Serial.println("⚠️ File not found, using default 100.0 Hz");
+  }
+
+  // Store the loaded frequency for later use
+  savedFreq = freq;
+  totalSteps = loadedSteps;
+  heightMM = totalSteps * MM_PER_STEP;
+
+  // Debug output
+  Serial.print("📂 Loaded frequency: ");
+  Serial.println(freq, 6);
+
+  Serial.print("📂 Loaded totalSteps: ");
+  Serial.println(totalSteps, 3);
+
+  Serial.print("📏 Restored height: ");
+  Serial.println(heightMM, 3);
+
+  return freq;
+}
+// This function is called when the phone app sends the command "CALIBRATE".
+// It begins a homing routine so the system can find a known reference position
+// using an endstop switch.
+
+void handleCALIBRATE() {
+
+  // If the system has already been calibrated,
+  // immediately tell the app that calibration is complete.
+  if (isCalibrated) {
+
+    String response = "CALIBRATE:OK\n";
+    bleuart.print(response);  // Send confirmation to app
+    Serial.println("Sent OK");
+    return;
+  }
+
+  // Mark that movement has occurred
+  hasMoved = true;
+
+  // Enable calibration mode
+  calibration = true;
+
+  // If the endstop is already pressed when calibration starts,
+  // the system must first move AWAY from the switch.
+  if (switched) {
+
+    exCalibration = true;  // Extra stage required
+    uint32_t speed = constrain(500, MIN_SPEED, MAX_SAFE_SPEED);
+
+    targetDirCW = false;  // Move CCW (upwards, away from switch)
+    targetSpeed = speed;
+
+    Serial.print("Starting calibration:");
+    Serial.print("▶ CWW ");
+    Serial.println(speed);
+
+  } else {
+
+    // Normal case: move toward the endstop to find zero
+    uint32_t speed = constrain(3000, MIN_SPEED, MAX_SAFE_SPEED);
+
+    targetDirCW = true;  // Move CW (toward endstop)
+    targetSpeed = speed;
+
+    Serial.print("Starting calibration:");
+    Serial.print("▶ CW ");
+    Serial.println(speed);
+  }
+
+  // Tell the app to wait while calibration is happening
+  String response = "CALIBRATE:WAIT\n";
+  bleuart.print(response);
+  Serial.println("Sent WAIT");
+}
+// Handling a request from the app to set the frequency
+void handleSET_FREQ(String payload) {
+  if (min_freq == 0) {
+    min_freq = h_to_f(MAX_HEIGHT);
+  }
+  if (max_freq == 0) {
+    max_freq = h_to_f(MIN_HEIGHT);
+  }
+
+  // Convert the received text into a number
+  float freq = payload.toFloat();
+
+  Serial.println(freq);
+  Serial.println(min_freq);
+  Serial.println(max_freq);
+  Serial.println(freq < min_freq);
+
+  if (freq < min_freq || freq > max_freq) {
+    String response = "SET_FREQ:OOR\n";  // out of range
+    bleuart.print(response);
+    Serial.println("Sent OOR");
+    return;
+  }
+  String res = "SET_FREQ:WAIT\n";  // wait until it gets confirmation that it has set!
+  bleuart.print(res);
+  Serial.println("Sent WAIT");
+
+  // Set the new frequency value
+  int response = setFrequency(freq);
+
+
+
+  if (response < 0) {
+    String response = "SET_FREQ:ERR\n";  // error, didn't set
+    bleuart.print(response);
+    Serial.println("Sent ERR");
+    return;
+  }
+
+  // Update the current frequency
+  savedFreq = freq;
+
+  // Send a confirmation message back to the app
+  String res2 = "SET_FREQ:OK\n";  // wait until it gets confirmation that it has set!
+  bleuart.print(res2);
+
+  // Show what was sent in the serial monitor
+  Serial.println("Sent OK");
+}
+
+// Handle a request from the app to read the current frequency
+// Handle a request from the app to read the current frequency
+void handleGET_FREQ() {
+  // Just in case they haven't been calculated yet
+  if (min_freq == 0.0f) {
+    min_freq = h_to_f(MAX_HEIGHT);
+  }
+  if (max_freq == 0.0f) {
+    max_freq = h_to_f(MIN_HEIGHT);
+  }
+
+  // Create a response message containing the saved frequency, min, and max
+  // Format: GET_FREQ:current,min,max\n
+  String res = "GET_FREQ:" + String(savedFreq, 6) + ","
+                           + String(min_freq, 6) + ","
+                           + String(max_freq, 6) + "\n";
+
+  // Send the string back to the app over Bluetooth
+  bleuart.print(res);
+
+  // Show exactly what was sent in the serial monitor for easy debugging
+  Serial.print("Sent (Current, Min, Max): ");
+  Serial.print(savedFreq, 6); Serial.print(" Hz, ");
+  Serial.print(min_freq, 6); Serial.print(" Hz, ");
+  Serial.print(max_freq, 6); Serial.println(" Hz");
+}
+
+// Runs whenever data is received over Bluetooth
+void rx_callback(uint16_t conn_handle) {
+  (void)conn_handle;
+
+  // Read a full message sent from the app
+  String msg = bleuart.readStringUntil('\n');
+
+  // Remove extra spaces or line breaks
+  msg.trim();
+
+  // Display the received message
+  Serial.print("Received: ");
+  Serial.println(msg);
+
+  // Find the position of the ':' character
+  int colonIndex = msg.indexOf(':');
+
+  // Separate the command name and its data
+  String header;
+  String payload;
+
+  if (colonIndex >= 0) {
+    header = msg.substring(0, colonIndex);
+    payload = msg.substring(colonIndex + 1);
+  } else {
+    header = msg;
+    payload = "";
+  }
+
+  // Decide what action to take based on the command
+  if (header == "GET_FREQ") {
+    // Send the current frequency to the app
+    handleGET_FREQ();
+  } else if (header == "SET_FREQ") {
+    // Show that a new frequency was received
+    Serial.print("Received SET_FREQ from app with payload: ");
+    Serial.println(payload);
+
+    // Set the current frequency and send response back to app
+    handleSET_FREQ(payload);
+  } else if (header == "CALIBRATE") {
+    // Show that a new frequency was received
+    Serial.print("Received CALIBRATE from app with payload: ");
+    Serial.println(payload);
+
+    // Set the current frequency and send response back to app
+    handleCALIBRATE();
+  }
+}
+
+// This function runs once when the device is powered on
+void setup() {
+  pinMode(EN_PIN, OUTPUT);
+  digitalWrite(EN_PIN, HIGH);
+  // Set the latch pin to send signals out to other hardware
+  pinMode(LATCH_PIN, OUTPUT);
+  digitalWrite(LATCH_PIN, HIGH);
+  delay(5);
+
+  pinMode(ENDSTOP_PIN, INPUT_PULLUP);
+
+
+  // Set the button pin as an input with an internal pull-up resistor
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  // Set the LED pin as an output
+  pinMode(LED_PIN, OUTPUT);
+
+  // Start serial communication so messages can be shown on a computer
+  Serial.begin(115200);
+  Serial.setTimeout(2);
+
+  Serial1.setPins(RX_PIN, TX_PIN);
+  Serial1.begin(115200);
+  setupTMC();
+
+  // Start the internal storage system
+  if (!InternalFS.begin()) {
+    Serial.println("❌ Failed to mount Internal File System");
+    return;  // Stop setup if storage is not available
+  }
+
+  max_freq = h_to_f(MIN_HEIGHT);
+  min_freq = h_to_f(MAX_HEIGHT);
+
+  // Try to open the file that stores the saved data
+  bool shouldWrite = false;
+  float fileFreq = max_freq;
+  float fileSteps = 0.0f;
+  bool hasFreq = false;
+  bool hasSteps = false;
+
+  if (myFile.open("/data.txt", FILE_O_READ)) {
+
+    // Try to read first line (frequency)
+    if (myFile.available()) {
+      String line1 = myFile.readStringUntil('\n');
+      if (line1.length() > 0) {
+        fileFreq = line1.toFloat();
+        hasFreq = true;
+      }
+    }
+
+    // Try to read second line (totalSteps)
+    if (myFile.available()) {
+      String line2 = myFile.readStringUntil('\n');
+      if (line2.length() > 0) {
+        fileSteps = line2.toFloat();
+        hasSteps = true;
+      }
+    }
+
+    myFile.close();
+
+    // Decide if we need to fix the file
+    if (!hasFreq || !hasSteps) {
+      Serial.println("📂 File incomplete — repairing...");
+      shouldWrite = true;
+    } else {
+      Serial.println("📂 File OK:");
+      Serial.print("  Freq: ");
+      Serial.println(fileFreq, 6);
+      Serial.print("  Steps: ");
+      Serial.println(fileSteps, 3);
+    }
+
+  } else {
+    Serial.println("📁 File does not exist — creating default");
+    shouldWrite = true;
+  }
+
+  // Rewrite file if needed
+  if (shouldWrite) {
+
+    if (myFile.open("/data.txt", FILE_O_WRITE)) {
+
+      myFile.println(fileFreq, 6);   // Keep or write default freq
+      myFile.println(fileSteps, 3);  // Ensure steps line exists
+
+      myFile.close();
+
+      Serial.println("✅ File repaired/written with 2 lines");
+
+    } else {
+      Serial.println("❌ Failed to open file for writing");
+    }
+  }
+
+  // Load the saved frequency into the program
+  loadFrequency();
+
+  // Ignore inputs for 1.5 seconds after startup
+  startupIgnoreUntil = millis() + 1500;
+
+  Serial.println("🔒 Starting secure BLE with PIN 235711...");
+
+  Bluefruit.begin();                                 // Start the Bluetooth system on the device
+  Bluefruit.setName("Acoustic Pod");                 // Name of device that shows up on your phone
+  Bluefruit.setTxPower(4);                           // Set bluetooth strength (higher means longer-range)
+  Bluefruit.Security.setIOCaps(true, false, false);  // Setting how device handles secure pairing
+
+  // Runs functions when connected or disconnected from device
+  Bluefruit.Periph.setConnectCallback(connect_callback);
+  Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
+
+  // Set details shown in device information
+  bledis.setManufacturer("Seeed Studio");
+  bledis.setModel("XIAO nRF52840");
+  bledis.begin();
+
+  bleuart.setPermission(SECMODE_ENC_WITH_MITM, SECMODE_ENC_WITH_MITM);  // Stops data being sent unless secure connection made
+  bleuart.begin();                                                      // Start the Bluetooth data communication service
+  bleuart.setRxCallback(rx_callback);                                   // Run this function when data is recieved over Bluetooth
+
+  // Lets other devices know different information (name, type etc.)
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addTxPower();
+  Bluefruit.ScanResponse.addName();
+
+  Bluefruit.Advertising.restartOnDisconnect(true);  // Automatically start advertising again if the device disconnects
+  Bluefruit.Advertising.setInterval(160, 160);      // Set how often the device broadcasts its presence (about 100 ms)
+  Bluefruit.Advertising.start(0);                   // Start advertising indefinitely so devices can find and connect
+
+  // ---------- Motor control pins ----------
+  pinMode(DIR_PIN, OUTPUT);
+  pinMode(STEP_PIN, OUTPUT);
+
+  // Enable driver (LOW = enabled on TMC2209)
+  // digitalWrite(EN_PIN, LOW);
+  motorRunning = false;
+  // Set direction (we will test & flip if needed)
+  digitalWrite(DIR_PIN, HIGH);
+
+  // STEP idle low
+  digitalWrite(STEP_PIN, LOW);
+
+  Serial.println("🟢 Motor driver enabled");
+
+  // Allows pairing for 2 minutes before shutting down
+  pairingModeExpires = millis() + 120000;
+}
+bool isStalled() {
+  uint16_t sg = driver.SG_RESULT();
+
+  if (sg < 10) {  // threshold (tune 5–20)
+    Serial.print("⚠️ STALL detected | SG_RESULT = ");
+    Serial.println(sg);
+    return true;
+  }
+  return false;
+}
+bool fflag = false;
+static bool stallPrinted = false;
+
+// True when the system needs a second movement stage
+bool secondCal = false;
+
+// True when the final slow approach is finished
+bool finishedCal = false;
+
+void loop() {
+  // Motion timeout protection
+  if (motorRunning && (millis() - motionStartTime > motionTimeout)) {
+    Serial.println("⚠️ Motion timeout triggered");
+
+    targetSpeed = 0;
+    noTone(STEP_PIN);
+    digitalWrite(EN_PIN, HIGH);
+    motorRunning = false;
+  }
+  // Read the state of the endstop switch
+  bool endstopState = digitalRead(ENDSTOP_PIN);
+  // Rising edge = HIT
+  if (endstopState == HIGH && lastEndstopState == LOW) {
+    switched = true;
+    Serial.println("🛑 Endstop HIT");
+
+    // Only block movement IF moving toward the switch
+    if (targetDirCW) {
+      targetSpeed = 0;
+      digitalWrite(EN_PIN, HIGH);
+      Serial.println("⛔ stopped");
+    }
+
+    if (calibration && !finishedCal && !exCalibration) {
+      delay(500);
+      secondCal = true;
+
+      uint32_t speed = constrain(500, MIN_SPEED, MAX_SAFE_SPEED);
+      targetDirCW = false;  // Move UP (away from switch)
+      targetSpeed = speed;
+
+      Serial.print("reached bottom, now moving up CCW ");
+      Serial.println(speed);
+    }
+    if (calibration && finishedCal && !exCalibration) {
+      delay(500);
+      Serial.println("Calibration Completed!");
+
+      // Pre-check file system is writable BEFORE committing state
+      if (InternalFS.exists("/data.txt")) InternalFS.remove("/data.txt");
+      File testFile(InternalFS);
+      if (!testFile.open("/data.txt", FILE_O_WRITE)) {
+        Serial.println("❌ Failed to open file for writing");
+        String response = "CALIBRATE:ERR\n";
+        bleuart.print(response);
+        Serial.println("Sent ERR");
+        calibration = false;
+        secondCal = false;
+        finishedCal = false;
+      }
+      testFile.close();
+
+      // Now safe to commit
+      calibration = false;
+      secondCal = false;
+      finishedCal = false;
+      isCalibrated = true;
+      totalSteps = 0.0;
+      heightMM = 0.0;
+      savedFreq = max_freq;
+      Serial.println("📏 Height set to 0 mm");
+
+      // Save zeroed position
+      if (InternalFS.exists("/data.txt")) InternalFS.remove("/data.txt");
+      File writeFile(InternalFS);
+      if (writeFile.open("/data.txt", FILE_O_WRITE)) {
+        writeFile.println(savedFreq, 6);
+        writeFile.println(totalSteps, 3);  // 0.0
+        writeFile.close();
+        String response = "CALIBRATE:OK\n";
+        bleuart.print(response);
+        Serial.println("Sent OK");
+      } else {
+        Serial.println("❌ Failed to save position after calibration");
+        String response = "CALIBRATE:ERR\n";
+        bleuart.print(response);
+        Serial.println("Sent ERR");
+      }
+    }
+  }
+
+  if (endstopState == LOW && lastEndstopState == HIGH) {
+    Serial.println("you have come off the switch");
+    switched = false;
+    if (calibration && exCalibration) {
+      exCalibration = false;
+      uint32_t speed = constrain(3000, MIN_SPEED, MAX_SAFE_SPEED);
+      targetDirCW = true;
+      targetSpeed = speed;
+      Serial.print("Moved up, now starting real calibration");
+      Serial.print("▶ CW ");
+      Serial.println(speed);
+    }
+
+    if (calibration && secondCal) {
+      targetSpeed = 0;
+      digitalWrite(EN_PIN, HIGH);
+
+      delay(500);
+
+      uint32_t speed = constrain(500, MIN_SPEED, MAX_SAFE_SPEED);
+      targetDirCW = true;
+      targetSpeed = speed;
+
+      Serial.print("▶ CW ");
+      Serial.println(speed);
+
+      secondCal = false;
+      finishedCal = true;
+    }
+  }
+
+  lastEndstopState = endstopState;
+  updateMotor();
+  trackPosition();
+  handleSerialCommands();
+
+  int level = digitalRead(BUTTON_PIN);
+
+  if (millis() < startupIgnoreUntil) {
+    return;
+  }
+
+  if (!connected) {
+    if (millis() - lastBlink >= 600) {
+      lastBlink = millis();
+      ledState = !ledState;
+      if (ledState) {
+        digitalWrite(LED_PIN, HIGH);
+      } else {
+        digitalWrite(LED_PIN, LOW);
+      }
+      ledOnn = ledState;
+    }
+  } else {
+    digitalWrite(LED_PIN, HIGH);
+  }
+
+  if (!connected && millis() > pairingModeExpires) {
+    Serial.println("⏳ Pairing mode timed out — returning to normal mode");
+    shutdown();
+  }
+
+  if (level == HIGH) {
+    pressFlag = false;
+    if (!wasPressed) {
+      wasPressed = true;
+      pressStartTime = millis();
+    }
+    if (!longPressTriggered && (millis() - pressStartTime >= 5000)) {
+      longPressTriggered = true;
+    }
+    return;
+  }
+
+  if (level == LOW && !pressFlag) {
+    pressFlag = true;
+    if (!longPressTriggered && wasPressed) {
+      Serial.println("🔴 Short press → shutting down");
+      shutdown();
+    }
+    return;
+  }
+
+  if (pressFlag) {
+    longPressTriggered = false;
+    wasPressed = false;
+  }
+}

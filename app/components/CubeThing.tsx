@@ -31,7 +31,7 @@ function findTop3ModesInRange(
     length: number,
     width: number,
     height: number,
-    range: [number, number] = [100, 140], // Frequency range to analyse (Hz)
+    range: [number, number] = [80, 120], // Frequency range to analyse (Hz)
     speedOfSound = 343
 ): RoomMode[] {
     const [minF, maxF] = range;

@@ -17,3 +17,4 @@ export const saveData = async (name: string, data: any) => {
         console.error('Failed to save profile', e);
     }
 };
+
