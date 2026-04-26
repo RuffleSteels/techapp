@@ -1,22 +1,22 @@
-import {Icon, Label, NativeTabs} from "expo-router/unstable-native-tabs";
-import {useAnimation} from "../components/AnimationContext";
-import { View} from "react-native";
+import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useAnimation } from "../components/AnimationContext";
+import { View } from "react-native";
 import React from "react";
 
 export default function TabsLayout() {
-    const {animationRunning} = useAnimation();
+    const { animationRunning } = useAnimation();
 
     return (
-        <View style={{flex: 1}}>
+        <View style={{ flex: 1 }}>
             <NativeTabs>
                 <NativeTabs.Trigger name="index">
-                    <Label>Home</Label>
-                    <Icon sf="house.fill" drawable="ic_menu_home"/>
+                    <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+                    <NativeTabs.Trigger.Icon sf="house.fill" md="home" />
                 </NativeTabs.Trigger>
 
                 <NativeTabs.Trigger name="spaces">
-                    <Label>Spaces</Label>
-                    <Icon sf="rectangle.3.offgrid.fill" drawable="ic_menu_view"/>
+                    <NativeTabs.Trigger.Label>Spaces</NativeTabs.Trigger.Label>
+                    <NativeTabs.Trigger.Icon sf="rectangle.3.offgrid.fill" md="grid_view" />
                 </NativeTabs.Trigger>
             </NativeTabs>
 

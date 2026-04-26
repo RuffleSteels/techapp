@@ -105,6 +105,7 @@ export default function HomeScreen() {
                                 paddingHorizontal: 16,
                                 flexDirection: 'row',
                                 justifyContent: 'flex-start',
+                                zIndex:10,
                                 alignItems: 'flex-end'
                             }}>
                                 <View style={{flexDirection: 'column', width: '50%', gap: 32}}>
@@ -214,6 +215,8 @@ export default function HomeScreen() {
                                                                         style={{
                                                                             color: 'white',
                                                                             width: '100%',
+                                                                            minWidth: 40,        /* <--- ADD THIS: Prevents the pill from shrinking too much */
+                                                                            textAlign: 'center', /* <--- ADD THIS: Keeps the number visually balanced */
                                                                             fontSize: 24,
                                                                             fontWeight: '300'
                                                                         }}
@@ -236,7 +239,10 @@ export default function HomeScreen() {
                                             onPress={() => {
                                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
-                                                setTriggerAnim(true)
+                                                if (!(dims[0].value === '0' || dims[1].value === '0' || dims[2].value === '0')) {
+                                                    setTriggerAnim(true)
+                                                }
+
                                                 // setNameModal(true)
                                             }}
                                             disabled={parseFloat(dims[0].value) === 0 || parseFloat(dims[1].value) === 0 || parseFloat(dims[2].value) === 0}
@@ -344,16 +350,17 @@ export default function HomeScreen() {
                                 <Button color={'white'} onPress={() => {
                                     const newRoom = {
                                         name: name,
-                                        length: [parseFloat(dims[0].value), 100],
-                                        width: [parseFloat(dims[1].value), 100],
-                                        height: [parseFloat(dims[2].value), 100],
+                                        dimensions: [parseFloat(dims[0].value), parseFloat(dims[1].value), parseFloat(dims[2].value)],
                                         id: 0
                                     }
                                     setTriggerAnim(true)
                                     setName('')
                                     setNameModal(false)
                                 }} variant={'glass'}>
-                                    Create
+                                    <Text>
+                                        Create
+                                    </Text>
+
                                 </Button>
                             </Host>
                         </GlassView>

@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect} from "react";
-import {ImageBackground, StyleSheet, Text, View} from "react-native";
+import {ImageBackground, Pressable, StyleSheet, Text, View} from "react-native";
 import {GlassView} from "expo-glass-effect";
 import {styles} from "../../lib/theme";
 // @ts-ignore
@@ -7,74 +7,21 @@ import Pod from "../../assets/images/pod.svg";
 import {Button, ContextMenu, Host} from '@expo/ui/swift-ui';
 import manager from "../components/bleManager";
 
-import {foregroundStyle, glassEffect, padding,} from "@expo/ui/swift-ui/modifiers";
+import {
+    font,
+    foregroundStyle,
+    frame,
+    glassEffect,
+    labelStyle,
+    padding,
+} from "@expo/ui/swift-ui/modifiers";
 import {useRouter} from "expo-router";
 import {IconSymbol} from "../../lib/ui/icon-symbol";
-import {loadData, saveData} from "../../lib/utils";
+import {loadData, saveData, toDisplay} from "../../lib/utils";
 import {useFocusEffect} from '@react-navigation/native';
 import {Device} from "../../lib/types";
 import {useBLE} from "../../lib/BLEProvider";
 
-function fToH(f: number): number {
-    const PI = Math.PI;
-
-    const area = PI * (0.115 ** 2 - 0.03 ** 2);
-    const height = 0.185;
-    const A_sleeve = PI * (0.118 ** 2 - 0.115 ** 2);
-
-    const c = 343.0;
-    const r_hole = 0.0125;
-    const N = 5;
-    const L_eff = 0.05 + 1.6 * 0.0125;
-
-    const A_hole = PI * r_hole * r_hole;
-    const C = c / (2.0 * PI);
-
-    const K = (N * A_hole) / L_eff;
-
-    const V = (C * C * K) / (f * f);
-
-    const h = (V - area * height) / (area + A_sleeve);
-
-    return h * 1000.0; // meters → mm
-}
-
-function hToF(h_mm: number): number {
-    const PI = Math.PI;
-
-    const area = PI * (0.115 ** 2 - 0.03 ** 2);
-    const height = 0.185;
-    const A_sleeve = PI * (0.118 ** 2 - 0.115 ** 2);
-
-    const c = 343.0;
-    const r_hole = 0.0125;
-    const N = 5;
-    const L_eff = 0.05 + 1.6 * 0.0125;
-
-    const A_hole = PI * r_hole * r_hole;
-    const C = c / (2.0 * PI);
-
-    const K = (N * A_hole) / L_eff;
-
-    // convert mm → meters
-    const h = h_mm / 1000.0;
-
-    const V = h * (area + A_sleeve) + area * height;
-
-    const f = (C * Math.sqrt(K)) / Math.sqrt(V);
-
-    return f;
-}
-
-/** Convert an actual hardware frequency to the predicted display value via regression ŷ = 0.7884x + 26.71 */
-export function toDisplay(freq: number): string {
-    return (-2.143121 * Math.sqrt(fToH(Math.min(freq,120.7))) + 127.883136).toFixed(1)
-}
-
-/** Inverse: convert a user-entered predicted/display frequency back to the actual hardware frequency */
-export function fromDisplay(predicted: number): number {
-    return parseFloat(hToF(((predicted - 127.883136) / -2.143121)**2).toFixed(1));
-}
 export default function HomeScreen() {
     const [hidden, setHidden] = React.useState(false);
     const router = useRouter();
@@ -85,7 +32,7 @@ export default function HomeScreen() {
     const goDevice = React.useRef(-1)
     const [failed, setFailed] = React.useState(0)
     const navigating = React.useRef(false)
-    const cooldown = React.useRef(true)
+
     useEffect(() => {
         if (goDevice.current > -1) {
             router.push({pathname: '/device', params: {id: goDevice.current}})
@@ -93,6 +40,7 @@ export default function HomeScreen() {
             goDevice.current = -1
         }
     }, [connectedDevice]);
+
     useFocusEffect(
         useCallback(() => {
             const timer = setTimeout(() => { navigating.current = false; }, 300);
@@ -112,6 +60,7 @@ export default function HomeScreen() {
             };
         }, [])
     );
+
     useFocusEffect(
         useCallback(() => {
             if (!devicesLoaded) return;
@@ -128,21 +77,19 @@ export default function HomeScreen() {
                     const connectedDeviceItem = devices.find(d => d.deviceId === connectedDevice?.id)
 
                     if (connectedDeviceItem) {
-                        console.log('get')
                         const response = await sendMessage('GET_FREQ');
                         let frequency = 0
 
                         if (response && typeof response !== 'string' && 'current' in response) {
                             frequency = response.current;
-                            console.log(`Current freq is ${frequency}`);
                         } else {
                             console.error("Failed to get frequency or got unexpected response:", response);
                         }
-                        console.log(frequency, 'freq')
+
                         setDevices((prevDevices) => {
                             return prevDevices.map((d) =>
                                 d.deviceId === connectedDevice.id
-                                    ? { ...d, frequency: parseFloat(frequency) }
+                                    ? { ...d, frequency: parseFloat(String(frequency)) }
                                     : d
                             );
                         });
@@ -166,12 +113,10 @@ export default function HomeScreen() {
     }, [failed]);
 
     useEffect(() => {
-        console.log(devices)
         saveData('devices', devices)
     }, [devices]);
 
     useEffect(() => {
-        console.log(hasBonded)
         const init = async () => {
             if (hasBonded === 0) {
                 await disconnectDevice(lastDevice)
@@ -181,12 +126,10 @@ export default function HomeScreen() {
             }
         }
         init()
-
     }, [hasBonded]);
 
     return (
         <View style={styles.container}>
-
             <ImageBackground
                 source={require("../../assets/images/gradient.png")}
                 style={styles.background}
@@ -204,33 +147,29 @@ export default function HomeScreen() {
                         <Text style={[localStyles.text, localStyles.headline]}>My Devices</Text>
                     </View>
 
-                    <View style={{
-                        gap: 16
-                    }}>
-                        {
-                            devices.map((item, i) => (
-                                <Host key={i} style={{
-                                }}>
-                                    <ContextMenu activationMethod={'longPress'}>
+                    <View style={{ gap: 16 }}>
+                        {devices.map((item, i) => (
+                                <Host key={i}>
+                                    <ContextMenu>
                                         <ContextMenu.Items>
-                                            <Button onPress={async () => {
-                                                if (connectedDevice && connectedDevice.id === item.deviceId) {
-                                                    disconnectDevice()
-                                                }
-                                                setDevices(prev => {
-                                                    console.log(prev.filter(itemm => itemm.id !== parseInt(item.id)))
-                                                    return prev.filter(itemm => itemm.id !== parseInt(item.id))
-                                                })
-                                            }} role={'destructive'} modifiers={[
-                                                foregroundStyle('red')
-                                            ]} systemImage={'trash'}>
-                                                Delete
-                                            </Button>
+                                            <Button
+                                                label="Delete"
+                                                role="destructive"
+                                                systemImage="trash"
+                                                onPress={async () => {
+                                                    if (connectedDevice && connectedDevice.id === item.deviceId) {
+                                                        disconnectDevice()
+                                                    }
+                                                    setDevices(prev => {
+                                                        return prev.filter(itemm => itemm.id !== parseInt(String(item.id)))
+                                                    })
+                                                }}
+                                            />
                                         </ContextMenu.Items>
                                         <ContextMenu.Trigger>
                                             <View>
-                                                {
-                                                    !connectedDevice || item.deviceId !== connectedDevice?.id ?<View style={{
+                                                {(!connectedDevice || item.deviceId !== connectedDevice?.id) && (
+                                                    <View style={{
                                                         position: 'absolute',
                                                         width: '100%',
                                                         height: '100%',
@@ -241,9 +180,7 @@ export default function HomeScreen() {
                                                     }}>
                                                         <Host>
                                                             <Button
-                                                                onPress={() => {
-
-                                                                }}
+                                                                onPress={() => {}}
                                                                 role="default"
                                                                 variant="plain"
                                                                 modifiers={[
@@ -266,25 +203,21 @@ export default function HomeScreen() {
                                                                     paddingHorizontal: 8,
                                                                     paddingRight: 14,
                                                                     fontSize: 18,
-                                                                    fontWeight: 600
-                                                                }]}>
-                                                                    {isReconnecting ? 'Connecting...' : 'Connect'}
-                                                                </Text>
-
+                                                                    fontWeight: '600'
+                                                                }]}>{isReconnecting ? 'Connecting...' : 'Connect'}</Text>
                                                             </Button>
                                                         </Host>
-                                                    </View> : null
-                                                }
+                                                    </View>
+                                                )}
 
                                                 <GlassView key={i} style={[localStyles.glassBox,{
-                                                    pointerEvents: !hasTried || isReconnecting ? 'none' : 'all',
-                                                    opacity: !connectedDevice || item.deviceId !== connectedDevice?.id ? .3 : 1
+                                                    pointerEvents: !hasTried || isReconnecting ? 'none' : 'auto'
                                                 }]} tintColor={'rgba(50,50,50,.7)'}
                                                            glassEffectStyle="clear">
 
                                                     <View style={[localStyles.glassBoxBox, {
+                                                        opacity: !connectedDevice || item.deviceId !== connectedDevice?.id ? .3 : 1
                                                     }]}>
-
                                                         <Host style={{
                                                             width: '100%',
                                                             height: '100%'
@@ -293,9 +226,8 @@ export default function HomeScreen() {
                                                                 onPress={async () => {
                                                                     if (navigating.current) return;
                                                                     navigating.current = true;
-                                                                    console.log(cooldown.current)
 
-                                                                    setFailed(false)
+                                                                    setFailed(0)
                                                                     if (!connectedDevice || item.deviceId !== connectedDevice?.id) {
                                                                         setIsReconnecting(true)
                                                                     }
@@ -309,32 +241,27 @@ export default function HomeScreen() {
 
                                                                                 const state = await manager.state();
                                                                                 if (state !== 'PoweredOn') {
-                                                                                    console.warn("⚠️ Bluetooth is not powered on");
                                                                                     setFailed(1);
                                                                                     setIsReconnecting(false);
+                                                                                    navigating.current = false;
                                                                                     return;
                                                                                 }
-
-                                                                                console.log("🔌 Attempting to connect:", item.deviceId);
 
                                                                                 const device = await manager.connectToDevice(item.deviceId, {
                                                                                     autoConnect: false,
                                                                                     timeout: 10000,
                                                                                 });
 
-                                                                                console.log("✅ Connected to:", device.name);
-
                                                                                 await device.discoverAllServicesAndCharacteristics();
 
                                                                                 unsubscribeRx();
                                                                                 const res = await connectDevice(device);
-                                                                                console.log(res);
                                                                                 goDevice.current = item.id;
 
                                                                             } catch (error: any) {
-                                                                                console.error("❌ Failed to connect:", error?.message || error);
                                                                                 setFailed(2);
                                                                                 setIsReconnecting(false);
+                                                                                navigating.current = false;
                                                                             }
                                                                         }
                                                                     }
@@ -343,7 +270,6 @@ export default function HomeScreen() {
                                                                         setTimeout(() => setHidden(true), 100)
                                                                     }
                                                                     setIsReconnecting(false)
-
                                                                 }}
                                                                 variant="plain"
                                                             >
@@ -364,41 +290,29 @@ export default function HomeScreen() {
 
                                                                         <View style={localStyles.deviceItemStuff}>
                                                                             <View>
-                                                                                <Text style={[localStyles.text, localStyles.headline]}>{false ? '-'.repeat(item.name.length) : item.name}</Text>
+                                                                                <Text style={[localStyles.text, localStyles.headline]}>{item.name}</Text>
                                                                                 <Text
-                                                                                    style={[localStyles.text, localStyles.subheadline, localStyles.greyed]}>{false ? '------------' : 'Acoustic Pod'}</Text>
+                                                                                    style={[localStyles.text, localStyles.subheadline, localStyles.greyed]}>Acoustic Pod</Text>
                                                                             </View>
 
                                                                             <GlassView style={localStyles.hertzTag}>
                                                                                 <IconSymbol size={28} color={'white'}
                                                                                             name="waveform.path"/>
-                                                                                {/* Display the predicted/display value of the stored actual frequency */}
-                                                                                <Text style={[localStyles.text, localStyles.footnote]}>
-                                                                                    {hidden || !item?.frequency || !hasAttempted
-                                                                                        ? '-----'
-                                                                                        : toDisplay(item.frequency)
-                                                                                    }Hz
-                                                                                </Text>
+                                                                                <Text style={[localStyles.text, localStyles.footnote]}>{(hidden || !item?.frequency || !hasAttempted) ? '-----' : `${toDisplay(item.frequency)}Hz`}</Text>
                                                                             </GlassView>
                                                                         </View>
-
                                                                     </View>
                                                                     <IconSymbol style={{}} size={30} name={'chevron.forward'}
                                                                                 color={'white'}/>
                                                                 </View>
-
-
                                                             </Button>
                                                         </Host>
                                                     </View>
                                                 </GlassView>
                                             </View>
-
                                         </ContextMenu.Trigger>
                                     </ContextMenu>
-
                                 </Host>
-
                             ))
                         }
 
@@ -408,43 +322,34 @@ export default function HomeScreen() {
                                 outlineWidth: 1,
                                 outlineColor: 'rgba(255,255,255,0.5)'
                             }]} glassEffectStyle="clear" tintColor={'rgba(50,50,50,.5)'}>
-                                <Host style={{
-                                    width: '100%',
-                                    height: '100%'
-                                }}>
-                                    <Button
-                                        onPress={() => {
-                                            router.push('/pairing')
-                                        }}
-                                        variant="plain"
-                                        modifiers={[
-                                            padding({
-                                            }),
-                                            glassEffect({
-                                                glass: {
-                                                    variant: 'regular',
-                                                    interactive: true,
-                                                },
-                                                shape: 'rectangle',
-                                            }),
-                                        ]}
-                                    >
-                                        <View style={{
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            height: '100%'
-                                        }}>
-                                            <IconSymbol size={50} color={'white'} name="plus"/>
-                                        </View>
-
-                                    </Button>
-                                </Host>
+                                <Pressable
+                                    onPress={() => router.push('/pairing')}
+                                    style={{ width: '100%', height: '100%' }}
+                                >
+                                    <Host style={{ width: '100%', height: '100%' }} hitSlop={0}>
+                                        <Button
+                                            label="Add Device"
+                                            systemImage="plus"
+                                            variant="plain"
+                                            onPress={() => router.push('/pairing')}
+                                            modifiers={[
+                                                labelStyle('iconOnly'),
+                                                font({ size: 48 }),
+                                                foregroundStyle('white'),
+                                                frame({ maxWidth: 10000, maxHeight: 10000 }),
+                                                glassEffect({
+                                                    glass: { variant: 'regular', interactive: true },
+                                                    shape: 'rectangle',
+                                                }),
+                                            ]}
+                                        />
+                                    </Host>
+                                </Pressable>
                             </GlassView>
                         </GlassView>
                     </View>
-
-
                 </View>
+
                 {
                     failed > 0 ? <View style={{
                         position: 'absolute',
@@ -457,6 +362,7 @@ export default function HomeScreen() {
                     }}>
                         <GlassView
                             style={[localStyles.warningContainer]}
+                            glassEffectStyle="clear"
                             glassEffectStyle="clear"
                             tintColor="rgba(50,50,50,.5)"
                         >
@@ -472,7 +378,6 @@ export default function HomeScreen() {
                         </GlassView>
                     </View>: null
                 }
-
             </ImageBackground>
         </View>
     );
@@ -517,7 +422,6 @@ const localStyles = StyleSheet.create({
     subheadline: {
         fontSize: 15,
         fontWeight: "regular",
-
     },
     deviceItemDetails: {
         flexDirection: "row",
@@ -534,7 +438,6 @@ const localStyles = StyleSheet.create({
     },
     titleContainer: {
         gap: 10,
-
     },
     deviceItemInner: {
         alignItems: "center",
@@ -580,7 +483,6 @@ const localStyles = StyleSheet.create({
         borderRadius: 24,
         width: '100%'
     },
-
     text: {
         color: "#fff",
     },

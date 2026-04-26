@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "acousticpod",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to find and connect to nearby devices.",
@@ -35,7 +34,10 @@
         }
       ],
       "react-native-ble-plx",
-      "expo-asset"
+      "expo-asset",
+      "expo-font",
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

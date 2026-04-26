@@ -1,586 +1,410 @@
 // CubeThing.tsx
-import React, {useEffect, useRef, useState} from "react";
-import {Dimensions, Keyboard, StyleSheet, Text, TextInput, View} from "react-native";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import {
+    Dimensions,
+    Keyboard,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
 import WireframeCuboid from "../components/Cuboid";
-import Animated, {runOnJS, useAnimatedStyle, useSharedValue, withTiming,} from "react-native-reanimated";
-import {BlurView} from "expo-blur";
-import {Button, Host} from "@expo/ui/swift-ui";
+import Animated, {
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+    Easing,
+    interpolate,
+} from "react-native-reanimated";
+import { BlurView } from "expo-blur";
+import { Button, Host } from "@expo/ui/swift-ui";
 import * as Haptics from "expo-haptics";
-import {glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
-import {loadData, saveData} from "../../lib/utils";
-import {useAnimation} from "../components/AnimationContext";
-import {Device, Room} from "../../lib/types";
+import { font, foregroundStyle, glassEffect, padding } from "@expo/ui/swift-ui/modifiers";
+import { findTop3ModesInRange, loadData, saveData, toDisplay } from "../../lib/utils";
+import { useAnimation } from "../components/AnimationContext";
+import { Device, Room, RoomMode } from "../../lib/types";
+
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const TRAY_HEIGHT = 400;
+const CUBE_SIZE = 300; 
+const CUBE_TOP_Y = -((SCREEN_HEIGHT - TRAY_HEIGHT) / 2 + CUBE_SIZE/2);
+
+const EASE_OUT_CUBIC = Easing.out(Easing.cubic);
+
+const T_RISE       = 4200;  
+const T_SPIN_RAMP  = 1800;
+const T_SPIN_HOLD  = 500;
+const T_SPIN_DOWN  = 1800;
+const T_OVERLAY_IN = 800;
+const T_LABEL_IN   = 350;
+const T_RESULTS_IN = 500;
 
 function findFirstMissingId(items: Room[]): number {
-    const ids = new Set(items.map(item => item.id));
+    const ids = new Set(items.map((item) => item.id));
     let i = 0;
-    while (ids.has(i)) {
-        i++;
-    }
+    while (ids.has(i)) i++;
     return i;
 }
-type RoomMode = {
-    nx: number;
-    ny: number;
-    nz: number;
-    frequency: number;
-    bounces: number;
-    type: "axial" | "tangential" | "oblique";
-};
-function findTop3ModesInRange(
-    length: number,
-    width: number,
-    height: number,
-    range: [number, number] = [80, 120], // Frequency range to analyse (Hz)
-    speedOfSound = 343
-): RoomMode[] {
-    const [minF, maxF] = range;
 
-    // Place to store all valid room modes found during calculation
-    const modes: RoomMode[] = [];
-
-    // Loop through possible all possible mode combinations
-    for (let nx = 0; nx <= 10; nx++) {
-        for (let ny = 0; ny <= 10; ny++) {
-            for (let nz = 0; nz <= 10; nz++) {
-
-                // Skip the invalid case where no wave exists at all
-                if (nx === 0 && ny === 0 && nz === 0) continue;
-
-                // Calculate the resonant frequency for this mode
-                // This is the standard room-mode equation for a rectangular space
-                const freq =
-                    (speedOfSound / 2) *
-                    Math.sqrt(
-                        (nx / length) ** 2 +
-                        (ny / width) ** 2 +
-                        (nz / height) ** 2
-                    );
-
-                // Ignore frequencies outside the target range
-                if (freq < minF || freq > maxF) continue;
-
-                // Calculate total number of bounces involved in this mode
-                const bounces = nx + ny + nz;
-
-                // Count how many room dimensions participate in this resonance
-                // (used to classify axial (1 dim), tangential (2 dims), or oblique modes (3 dims))
-                const activeAxes = [nx, ny, nz].filter((v) => v > 0).length;
-
-                // Classify the type of room mode based on active dimensions
-                const type =
-                    activeAxes === 1
-                        ? "axial"       // Between two opposite walls
-                        : activeAxes === 2
-                            ? "tangential" // Involves four walls
-                            : "oblique";   // Involves all six walls
-
-                // Store the calculated mode and its properties
-                modes.push({
-                    nx,
-                    ny,
-                    nz,
-                    frequency: freq,
-                    bounces,
-                    type
-                });
-            }
-        }
-    }
-
-    // Assign numeric priority to each mode type
-    // Lower values indicate higher priority
-    const typeWeight = {
-        axial: 1,
-        tangential: 2,
-        oblique: 3
-    };
-
-    // Sort modes by importance:
-    // 1) Fewer total bounces
-    // 2) Simpler mode type (axial first)
-    // 3) Lower frequency
-    const sorted = modes.sort((a, b) => {
-        if (a.bounces !== b.bounces)
-            return a.bounces - b.bounces;
-
-        if (typeWeight[a.type] !== typeWeight[b.type])
-            return typeWeight[a.type] - typeWeight[b.type];
-
-        return a.frequency - b.frequency;
-    });
-
-    // Store only perceptually distinct modes
-    const unique: RoomMode[] = [];
-
-    // Remove modes with near-identical frequencies
-    // This avoids returning multiple modes that sound the same
-    for (const mode of sorted) {
-        if (
-            !unique.some(
-                (m) => Math.abs(m.frequency - mode.frequency) < 0.1
-            )
-        ) {
-            unique.push(mode);
-        }
-
-        // Stop once the three most important modes are found
-        if (unique.length >= 3) break;
-    }
-
-    // Return the top three dominant room resonances
-    return unique;
-}
 interface CubeThingProps {
-    setDims: React.Dispatch<React.SetStateAction<{
-        name: string;
-        value: string;
-    }[]>>;
+    setDims: React.Dispatch<React.SetStateAction<{ name: string; value: string }[]>>;
     triggerAnim: boolean;
     setTriggerAnim: React.Dispatch<React.SetStateAction<boolean>>;
-    dims: Record<string, any>;
+    dims: { name: string; value: string }[];
 }
 
 export default function CubeThing({ setDims, triggerAnim, setTriggerAnim, dims }: CubeThingProps) {
-    // const [triggerAnim, setTriggerAnim] = useState(false);
-    const [stage, setStage] = useState(0); // 0 = idle, 1 = accelerate, 2 = final stop
-    const [name, setName] = useState('')
-    const {setAnimationRunning, animationRunning} = useAnimation();
-    const before = {x: 0, y: 30, z: 0};
-    const mid = {x: 450, y: 500, z: 0};
-    const stop = {x: 0, y: 0, z: 0}; // final: no rotation speeds
+    const { setAnimationRunning } = useAnimation();
 
-    const stopAngle = {x: 20, y: -45, z: 0}; // target final orientation
-
-    const [speed, setSpeed] = useState(before);
-    const current = useRef({...before});
-    const cubeY = useSharedValue(232);
-    const opacity = useSharedValue(0);
-    const fihal = useSharedValue(0);
-    const top = useSharedValue(-12);
-    const scrollRef = useRef(null);
+    const [name, setName] = useState("");
     const [keyboardHeight, setKeyboardHeight] = useState(0);
-    const calculatedRef = useRef([{frequency:0},{frequency:0},{frequency:0}]);
+    const calculatedRef = useRef<RoomMode[]>([]);
+    const [useTargetAngle, setUseTargetAngle] = useState(false);
 
-    const frameRef = useRef<number | null>(null);
+    const [rotSpeed, setRotSpeed] = useState({ x: 0, y: 30, z: 0 });
+    const rotSpeedRef = useRef({ x: 0, y: 30, z: 0 });
+    const rafRef = useRef<number | null>(null);
+    const hapticRafRef = useRef<number | null>(null); 
+    
+    const cubeY          = useSharedValue(0);
+    const overlayProgress = useSharedValue(0);
+    const labelOpacity   = useSharedValue(0);
+    const resultsOpacity = useSharedValue(0);
+
     useEffect(() => {
-        let running = true;
-        let lastTime = Date.now();
-        let lastHapticTime = Date.now();
-
-        // Configurable parameters
-        let delay = 700;        // start at 100ms between haptics
-        const minDelay = 10;    // cap at 10ms
-        const factor = 0.78;     // exponential ramp rate
-
-        const tick = () => {
-            if (!running) return;
-
-            const now = Date.now();
-            const elapsed = now - lastTime;
-            const sinceHaptic = now - lastHapticTime;
-            lastTime = now;
-
-            // If both conditions are active
-            if (triggerAnim && animationRunning) {
-                // If enough ms have passed since the last haptic → trigger one
-                if (sinceHaptic >= delay) {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    lastHapticTime = now;
-
-                    // Exponentially ramp up (reduce delay)
-                    delay = Math.max(minDelay, delay * factor);
-                }
-
-                requestAnimationFrame(tick);
-            } else {
-                // stopped → one last Heavy pulse
-                // Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            }
-        };
-
-        // Start loop
-        requestAnimationFrame(tick);
-
-        return () => {
-            running = false;
-            // optional heavy if stopped mid-animation
-            if (triggerAnim && animationRunning) {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            }
-        };
-    }, [triggerAnim, animationRunning]);
-    useEffect(() => {
-        const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-            setKeyboardHeight(event.endCoordinates.height);
-        });
-
-        const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-            setKeyboardHeight(0);
-        });
-
-        return () => {
-            showSub.remove();
-            hideSub.remove();
-        };
+        const show = Keyboard.addListener("keyboardDidShow", (e) =>
+            setKeyboardHeight(e.endCoordinates.height - 100));
+        const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+        return () => { show.remove(); hide.remove(); };
     }, []);
-    useEffect(() => {
-        if (!triggerAnim) {
-            top.value = withTiming(-12, {duration: 100})
-            return;
-        }
-        top.value = withTiming(-3000, {duration: 800})
-    }, [top, triggerAnim])
 
-    useEffect(() => {
-        if (!triggerAnim || stage !== 1) {
-            opacity.value = withTiming(0, {duration: 800})
-            return;
-        }
-        opacity.value = withTiming(1.0, {duration: 800})
-    }, [opacity, stage, triggerAnim])
-    useEffect(() => {
-        if (!triggerAnim || stage !== 2) {
-            fihal.value = withTiming(0, {duration: 400})
-            return;
-        }
-        setTimeout(() => {
-            // setAnimationRunning(false)
-            fihal.value = withTiming(1.0, {duration: 800})
-        }, 1000)
-        setTimeout(() => {
-            setAnimationRunning(false)
-            // fihal.value = withTiming(1.0, { duration: 800 })
-        }, 2000)
-
-    }, [fihal, stage, triggerAnim])
-
-    useEffect(() => {
-        setName('')
-        if (!triggerAnim) {
-            cubeY.value = withTiming(232, {duration: 300});
-            setStage(0);
-            setAnimationRunning(false)
-            return;
-        }
-
-        (setStage)(1)
-        // Stage 1: go to half height and accelerate
-        setAnimationRunning(true)
-        cubeY.value = withTiming(
-            Dimensions.get("window").height / 2 + 48,
-            {duration: 800},
-            (finished) => {
-                // if (finished) runOnJS(setStage)(1);
-                // Automatically go to stage 2 after a moment
-                setTimeout(() => runOnJS(setStage)(2), 2000);
-            }
-        );
-    }, [triggerAnim]);
-
-
-    // Rotation speed interpolation
-    useEffect(() => {
-        const duration = stage === 2 ? 1800 : 1200;
+    const interpolateRotation = useCallback((
+        from: { x: number; y: number; z: number },
+        to:   { x: number; y: number; z: number },
+        durationMs: number,
+        onDone?: () => void
+    ) => {
+        if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
         const start = performance.now();
-        const from = {...current.current};
-        const to = stage === 1 ? mid : stage === 2 ? stop : before;
 
         const tick = (now: number) => {
-            const t = Math.min((now - start) / duration, 1);
-            const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
+            const t = Math.min((now - start) / durationMs, 1);
+            const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-            current.current = {
+            const next = {
                 x: from.x + (to.x - from.x) * ease,
                 y: from.y + (to.y - from.y) * ease,
                 z: from.z + (to.z - from.z) * ease,
             };
-            setSpeed({...current.current});
-            if (t < 1) requestAnimationFrame(tick);
+            rotSpeedRef.current = next;
+            setRotSpeed({ ...next });
+
+            if (t < 1) {
+                rafRef.current = requestAnimationFrame(tick);
+            } else {
+                rafRef.current = null;
+                onDone?.();
+            }
         };
-        requestAnimationFrame(tick);
-    }, [stage]);
+        rafRef.current = requestAnimationFrame(tick);
+    }, []);
 
-    // Stage 2: final move to top
     useEffect(() => {
-        if (stage === 2) {
-            cubeY.value = withTiming(Dimensions.get("window").height - 200, {
-                duration: 1800,
-            });
+        if (!triggerAnim) {
+            if (rafRef.current !== null) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = null;
+            }
+            if (hapticRafRef.current !== null) {
+                cancelAnimationFrame(hapticRafRef.current);
+                hapticRafRef.current = null;
+            }
+
+            cubeY.value           = withTiming(0, { duration: 500, easing: EASE_OUT_CUBIC });
+            overlayProgress.value = withTiming(0, { duration: 400 });
+            labelOpacity.value    = withTiming(0, { duration: 200 });
+            resultsOpacity.value  = withTiming(0, { duration: 200 });
+
+            setRotSpeed({ x: 0, y: 30, z: 0 });
+            rotSpeedRef.current = { x: 0, y: 30, z: 0 };
+            setUseTargetAngle(false);
+            setName("");
+            setAnimationRunning(false);
+            return;
         }
-    }, [stage]);
 
-    const cubeStyle = useAnimatedStyle(() => ({
-        bottom: cubeY.value,
-    }));
+        const l = parseFloat(dims[0].value) || 3;
+        const w = parseFloat(dims[1].value) || 2;
+        const h = parseFloat(dims[2].value) || 2.5;
+        
+        // Preview calculation uses a standard range [80, 120]
+        calculatedRef.current = findTop3ModesInRange(l, w, h, [80, 120]);
 
-    const opacityStyle = useAnimatedStyle(() => ({
-        top: top.value
-    }));
+        setAnimationRunning(true);
+        setUseTargetAngle(false);
 
-    const textStyle = useAnimatedStyle(() => ({
-        opacity: opacity.value,
-    }));
-    const finalStyle = useAnimatedStyle(() => ({
-        opacity: fihal.value,
-    }));
+        cubeY.value           = withTiming(CUBE_TOP_Y, { duration: T_RISE, easing: EASE_OUT_CUBIC });
+        overlayProgress.value = withTiming(1, { duration: T_OVERLAY_IN, easing: EASE_OUT_CUBIC });
+        
+        const hapticStart = performance.now();
+        let lastHapticTime = hapticStart;
+        const tickHaptic = (now: number) => {
+            const progress = Math.min((now - hapticStart) / T_RISE, 1);
+            const interval = Math.max(16, 300 - progress * 270);
+            if (now - lastHapticTime >= interval) {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                lastHapticTime = now;
+            }
+            if (progress < 1) {
+                hapticRafRef.current = requestAnimationFrame(tickHaptic);
+            } else {
+                hapticRafRef.current = null;
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            }
+        };
+        hapticRafRef.current = requestAnimationFrame(tickHaptic);
 
-    const height = parseFloat(dims[2].value) || 1.5;
-    const width = parseFloat(dims[0].value) || 3;
-    const depth = parseFloat(dims[1].value) || 2;
-
-    useEffect(() => {
-        calculatedRef.current = findTop3ModesInRange(height, width, depth);
-        console.log(calculatedRef.current)
+        interpolateRotation(
+            { x: 0, y: 30, z: 0 },
+            { x: 250, y: 300, z: 0 },
+            T_SPIN_RAMP,
+            () => {
+                labelOpacity.value = withTiming(1, { duration: T_LABEL_IN });
+                const t3 = setTimeout(() => {
+                    setUseTargetAngle(true);
+                    interpolateRotation(
+                        { x: 250, y: 300, z: 0 },
+                        { x: 0, y: 0, z: 0 },
+                        T_SPIN_DOWN,
+                        () => {
+                            labelOpacity.value = withTiming(0, { duration: 250 });
+                            resultsOpacity.value = withTiming(1, { duration: T_RESULTS_IN });
+                            setTimeout(() => setAnimationRunning(false), T_RESULTS_IN);
+                        }
+                    );
+                }, T_SPIN_HOLD);
+                return () => clearTimeout(t3);
+            }
+        );
     }, [triggerAnim]);
+
+    const cubeAnimStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: cubeY.value }],
+    }));
+
+    const overlayAnimStyle = useAnimatedStyle(() => ({
+        height: interpolate(
+            overlayProgress.value,
+            [0, 1],
+            [TRAY_HEIGHT, SCREEN_HEIGHT]
+        ),
+    }));
+
+    const labelStyle = useAnimatedStyle(() => ({
+        opacity: labelOpacity.value,
+    }));
+
+    const resultsStyle = useAnimatedStyle(() => ({
+        opacity: resultsOpacity.value,
+        transform: [
+            { translateY: interpolate(resultsOpacity.value, [0, 1], [14, 0]) },
+        ],
+    }));
+
+    const roomLength = parseFloat(dims[0].value) || 3;
+    const roomWidth  = parseFloat(dims[2].value) || 2;
+    const roomHeight = parseFloat(dims[1].value) || 2.5;
+
     return (
-        <Animated.View
-            style={[styles.container, cubeStyle, {
-                paddingBottom: (keyboardHeight === 0 || stage === 0) ? 0 : keyboardHeight + 200,
-                overflow: 'visible',  // ← add this
-            }]}
-        >
-            <Animated.View style={[{
-                width: '100%',
-                position: 'absolute',
-                top: 0,
-                zIndex: 10000,
-                height: Dimensions.get("window").height,
-                // backgroundColor: 'red',
-                paddingHorizontal: 32,
-                paddingBottom: 160,
-                paddingTop: 290
-            }, finalStyle]}>
-                <View
-                  style={{
-                    // backgroundColor: 'blue',
-                    // paddingBottom0
-                    width: '100%',
-                    height: '100%',
-                    gap: 52
-                }}>
+        <>
+            <Animated.View style={[styles.overlayPanel, overlayAnimStyle]} pointerEvents="none">
+                <BlurView intensity={25} tint="dark" style={StyleSheet.absoluteFill} />
+                <View style={styles.trayTopEdge} />
+            </Animated.View>
 
-                    <View style={{gap: 16}}>
-                        <Text style={{
-                            color: 'white',
-                            fontWeight: '200',
-                            fontSize: 25
-                        }}>
-                            For each dimension of your space, the following frequencies have been calculated as likely
-                            to resonate. Setting your Pod to these frequencies could improve the sound in your space.
-                        </Text>
-
-                        <View style={{
-                            gap: 16
-                        }}>
-                            <Text style={{
-                                color: 'white',
-                                fontWeight: '300',
-                                fontSize: 26
-                            }}>
-                                Length: {calculatedRef.current[0] ? `${calculatedRef.current[0].frequency.toFixed(1)}Hz` : 'N/A'}
+            <View style={[styles.cubeWrapper, { paddingBottom: triggerAnim && keyboardHeight > 0 ? keyboardHeight + 120 : 90 }]} pointerEvents="box-none">
+                <Animated.View style={[styles.resultsCard, resultsStyle, { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 40 : 50 }]} pointerEvents={triggerAnim ? "auto" : "none"}>
+                    <View style={styles.resultsInner}>
+                        <View style={{ gap: 16 }}>
+                            <Text style={styles.resultsDescription}>
+                                Save your room&#39;s dimensions and we&#39;ll calculate the three resonant frequencies most likely causing issues in your space – so you can tune your Pods to absorb them.
                             </Text>
-                            <Text style={{
-                                color: 'white',
-                                fontWeight: '300',
-                                fontSize: 26
-                            }}>
-                                Width: {calculatedRef.current[1] ? `${calculatedRef.current[1].frequency.toFixed(1)}Hz` : 'N/A'}
-                            </Text>
-                            <Text style={{
-                                color: 'white',
-                                fontWeight: '300',
-                                fontSize: 26
-                            }}>
-                                Height: {calculatedRef.current[2] ? `${calculatedRef.current[2].frequency.toFixed(1)}Hz` : 'N/A'}
-                            </Text>
+                            {/*<View style={{ gap: 12 }}>*/}
+                            {/*    {(["Length", "Width", "Height"] as const).map((label, i) => (*/}
+                            {/*        <Text key={label} style={styles.frequencyLine}>*/}
+                            {/*            {label}: {calculatedRef.current[i] ? `${toDisplay(calculatedRef.current[i].frequency)}Hz` : "N/A"}*/}
+                            {/*        </Text>*/}
+                            {/*    ))}*/}
+                            {/*</View>*/}
                         </View>
 
-                    </View>
-
-
-                    <View style={{
-                        width: '100%',
-                        alignItems: 'flex-end',
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        gap: 16
-                    }}>
-                        <TextInput
-                            placeholder="Enter a name..."
-                            placeholderTextColor="#aaa"
-                            value={name}
-                            autoFocus={false}
-                            inputMode={'text'}
-                            maxLength={15}
-                            onPress={() => {
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
-
-                            }}
-
-                            onChangeText={setName}
-                            style={{
-                                backgroundColor: 'rgba(255,255,255,0.06)',
-                                color: 'white',
-                                padding: 16,
-                                paddingVertical: 8,
-                                borderRadius: 120,
-
-                                flex: 1,
-                                // padding: 10,
-                                fontSize: 22,
-                            }}
-                        />
-                        <Host style={{
-                            width: 148
-                        }}>
-                            <Button onPress={async () => {
-
-                                if (name) {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
-
-                                    const devices: Device[] = await loadData('devices');
-                                    const rooms: Room[] = await loadData('rooms')
-                                    const id = findFirstMissingId(rooms)
-                                    const newRoom = {
-                                        name: name,
-                                        length: [parseFloat(dims[0].value),calculatedRef.current[0] ? parseFloat(calculatedRef.current[0].frequency.toFixed(1)) : -1],
-                                        width: [parseFloat(dims[1].value),  calculatedRef.current[1] ? parseFloat(calculatedRef.current[1].frequency.toFixed(1)) : -1],
-                                        height: [parseFloat(dims[2].value),  calculatedRef.current[2] ? parseFloat(calculatedRef.current[2].frequency.toFixed(1)) : -1],
-                                        id
-                                    }
-
-                                    console.log('eeeeka')
-                                    console.log(newRoom)
-
-                                    devices.map((item: Device) => {
-                                        item.currentDimension[id] = calculatedRef.current[0] ? 0 : -1;
-                                    });
-
-                                    rooms.push(newRoom)
-
-                                    await saveData('devices', devices)
-                                    await saveData('rooms', rooms)
-
-                                    setTimeout(() => {
-                                        setDims([
-                                                {
-                                                    name: 'Length',
-                                                    value: '0'
-                                                },
-                                                {
-                                                    name: 'Width',
-                                                    value: '0'
-                                                },
-                                                {
-                                                    name: 'Height',
-                                                    value: '0'
-                                                }
-                                            ]
-
-                                        )
-                                        setName('')
-                                    }, 100)
-
-                                    setTriggerAnim(false)
-                                } else {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid);
-
-                                }
-                            }} role="default"
+                        <View style={styles.saveRow}>
+                            <TextInput
+                                placeholder="Enter a name..."
+                                placeholderTextColor="#aaa"
+                                value={name}
+                                autoFocus={false}
+                                inputMode="text"
+                                maxLength={15}
+                                onChangeText={setName}
+                                style={styles.nameInput}
+                            />
+                            <Host style={{ width: 148, height: 50 }}>
+                                <Button
+                                    label="Save Space"
                                     variant="plain"
                                     modifiers={[
-                                        padding({
-                                            // all: 4,
-                                        }),
+                                        padding({ vertical: 8, horizontal: 16 }),
+                                        foregroundStyle("white"),
+                                        font({ size: 22 }),
                                         glassEffect({
                                             glass: {
-                                                variant: 'regular',
+                                                variant: "regular",
                                                 interactive: true,
+                                                tint: "rgba(255,255,255,0.1)",
                                             },
-                                            shape: 'capsule'
+                                            shape: "capsule",
                                         }),
                                     ]}
-                                    color={'rgba(100,100,100,0.3)'}>
-                                <View style={{
-                                    backgroundColor: 'rgba(100,100,100,0.3)',
-                                    paddingHorizontal: 16,
-                                    paddingVertical: 8,
-                                    alignSelf: 'center',
-                                    borderRadius: 18,
+                                    onPress={async () => {
+                                        if (!name) {
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid);
+                                            return;
+                                        }
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+                                        const devices: Device[] = await loadData("devices") || [];
+                                        const rooms: Room[]     = await loadData("rooms") || [];
+                                        const id = findFirstMissingId(rooms);
+                                        const newRoom: Room = {
+                                            name,
+                                            dimensions: [roomLength, roomWidth, roomHeight],
+                                            id,
+                                        };
+                                        
+                                        devices.forEach((item: Device) => {
+                                            if (!item.currentDimension) item.currentDimension = {};
+                                            item.currentDimension[id] = 0;
+                                        });
+                                        
+                                        rooms.push(newRoom);
+                                        await saveData("devices", devices);
+                                        await saveData("rooms", rooms);
 
-                                }}>
-                                    <Text style={[{
-                                        fontWeight: '500',
-                                        fontSize: 22,
-                                        color: 'white'
-                                    }]}>
-                                        Save Space
-                                    </Text>
-                                </View>
-                            </Button>
-
-                        </Host>
+                                        setTimeout(() => {
+                                            setDims([
+                                                { name: "Length", value: "0" },
+                                                { name: "Width",  value: "0" },
+                                                { name: "Height", value: "0" },
+                                            ]);
+                                            setName("");
+                                        }, 100);
+                                        setTriggerAnim(false);
+                                    }}
+                                />
+                            </Host>
+                        </View>
                     </View>
+                </Animated.View>
 
-                </View>
+                <Animated.View style={cubeAnimStyle}>
+                    <WireframeCuboid
+                        width={roomLength * 40}
+                        height={roomWidth * 40}
+                        depth={roomHeight * 40}
+                        size={300}
+                        rotationSpeedX={rotSpeed.x}
+                        rotationSpeedY={rotSpeed.y}
+                        rotationSpeedZ={rotSpeed.z}
+                        targetAngleX={useTargetAngle ? 20  : undefined}
+                        targetAngleY={useTargetAngle ? -45 : undefined}
+                        targetAngleZ={useTargetAngle ? 0   : undefined}
+                    />
+                </Animated.View>
 
-            </Animated.View>
-            <WireframeCuboid
-                width={width * 40}
-                height={height * 40}
-                depth={depth * 40}
-                size={300}
-                rotationSpeedX={speed.x}
-                rotationSpeedY={speed.y}
-                rotationSpeedZ={speed.z}
-                // this ensures the cube blends toward its final resting orientation
-                targetAngleX={stage === 2 ? stopAngle.x : undefined}
-                targetAngleY={stage === 2 ? stopAngle.y : undefined}
-                targetAngleZ={stage === 2 ? stopAngle.z : undefined}
-            />
-            <Animated.Text style={[{
-                fontSize: 20,
-                fontWeight: 'bold',
-                color: 'white',
-                position: 'absolute',
-                top: '110%',
-                left: 0,
-                width: '100%',
-                textAlign: 'center',
-                zIndex: 1000,
-            }, textStyle]}>
-                Calculating frequencies...
-            </Animated.Text>
-            <Animated.View
-                style={[{
-                    width: '100%',
-                    height: 10000,
-                    backgroundColor: 'rgba(0,0,0,.5)',
-                    boxShadow: 'inset 0 15px 20px -10px rgba(0,0,0,0.5)',
-                    position: 'absolute',
-                    top: -12,
-                    left: 0
-                }, opacityStyle]}>
-                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill}/>
-            </Animated.View>
-            {/*</KeyboardAvoidingView>*/}
-        </Animated.View>
-        // </View>
-
-
+                <Animated.Text style={[styles.calcLabel, labelStyle, { position: 'absolute', top: 0 }]}>
+                    Calculating frequencies...
+                </Animated.Text>
+            </View>
+        </>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        alignItems: "center",
-        width: "100%",
-        transform: [{translateY: "50%"}],
+    overlayPanel: {
         position: "absolute",
-        bottom: 212,
         left: 0,
-        overflow: 'visible',  // ← add this
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        zIndex: 15,
+        overflow: "hidden",
+    },
+    trayTopEdge: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 1,
+        backgroundColor: "rgba(255,255,255,0.08)",
+    },
+    cubeWrapper: {
+        position: "absolute",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: TRAY_HEIGHT,
+        alignItems: "center",
+        justifyContent: "flex-end",
+        paddingBottom: 60,
+        overflow: "visible",
+        zIndex: 16,
+    },
+    resultsCard: {
+        position: "absolute",
+        bottom: 120,
+        left: 0,
+        right: 0,
+        paddingHorizontal: 32,
+        paddingBottom: 24,
+        zIndex: 20,
+    },
+    resultsInner: {
+        gap: 36,
+    },
+    resultsDescription: {
+        color: "white",
+        fontWeight: "200",
+        fontSize: 22,
+        lineHeight: 30,
+    },
+    frequencyLine: {
+        color: "white",
+        fontWeight: "300",
+        fontSize: 26,
+    },
+    saveRow: {
+        width: "100%",
+        alignItems: "center",
+        flexDirection: "row",
+        justifyContent: "space-between",
+        gap: 16,
+    },
+    nameInput: {
+        backgroundColor: "rgba(255,255,255,0.06)",
+        color: "white",
+        padding: 16,
+        paddingVertical: 8,
+        borderRadius: 120,
+        flex: 1,
+        fontSize: 22,
+    },
+    calcLabel: {
+        fontSize: 18,
+        fontWeight: "600",
+        color: "rgba(255,255,255,0.65)",
+        textAlign: "center",
+        marginTop: 10,
+        letterSpacing: 0.3,
     },
 });

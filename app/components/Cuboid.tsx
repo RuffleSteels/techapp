@@ -1,168 +1,189 @@
 // WireframeCuboid.tsx
-import React, { useEffect, useRef } from "react";
-import Svg, { Line } from "react-native-svg";
+import React, { useEffect } from "react";
+import { Canvas, Path, Skia } from "@shopify/react-native-skia";
+import {
+    useSharedValue,
+    useDerivedValue,
+    withTiming,
+    useFrameCallback,
+    Easing,
+    SharedValue,
+} from "react-native-reanimated";
 
 const deg2rad = (deg: number) => (deg * Math.PI) / 180;
 
-const EDGES: [number, number, string][] = [
-    // X-axis edges (width) - yellow
-    [0, 1, 'white'], [3, 2, 'white'], [4, 5, 'white'], [7, 6, '#D0B830'],
-    // Y-axis edges (height) - cyan
-    [0, 3, 'white'], [1, 2, 'white'], [4, 7, 'white'], [5, 6, '#D030C8'],
-    // Z-axis edges (depth) - magenta
-    [0, 4, 'white'], [1, 5, 'white'], [2, 6, '#30D0D0'], [3, 7, 'white'],
+// We define all 12 edges with their corresponding colors
+// Notice the missing [0, 4] edge has been added here!
+const EDGES = [
+    { a: 0, b: 1, color: "white" },
+    { a: 3, b: 2, color: "white" },
+    { a: 4, b: 5, color: "white" },
+    { a: 0, b: 3, color: "white" },
+    { a: 1, b: 2, color: "white" },
+    { a: 4, b: 7, color: "white" },
+    { a: 1, b: 5, color: "white" },
+    { a: 3, b: 7, color: "white" },
+    { a: 0, b: 4, color: "white" },   // Missing edge added
+    { a: 7, b: 6, color: "#D0B830" }, // Yellow
+    { a: 5, b: 6, color: "#D030C8" }, // Magenta
+    { a: 2, b: 6, color: "#30D0D0" }  // Cyan
 ];
 
-function computePoints(
-    angle: { x: number; y: number; z: number },
-    width: number,
-    height: number,
-    depth: number,
-    size: number
+function projectAll(
+    ax: number, ay: number, az: number,
+    ww: number, hh: number, dd: number,
+    size: number, globalScale: number
 ): number[][] {
-    const radX = deg2rad(angle.x);
-    const radY = deg2rad(angle.y);
-    const radZ = deg2rad(angle.z);
-    const cosY = Math.cos(radY), sinY = Math.sin(radY);
-    const cosX = Math.cos(radX), sinX = Math.sin(radX);
-    const cosZ = Math.cos(radZ), sinZ = Math.sin(radZ);
-
-    const w = width / 2, h = height / 2, d = depth / 2;
-    const verts = [
-        [-w, -h, -d], [w, -h, -d], [w, h, -d], [-w, h, -d],
-        [-w, -h, d],  [w, -h, d],  [w, h, d],  [-w, h, d],
+    'worklet';
+    const cosY = Math.cos(ay), sinY = Math.sin(ay);
+    const cosX = Math.cos(ax), sinX = Math.sin(ax);
+    const cosZ = Math.cos(az), sinZ = Math.sin(az);
+    const hw = ww / 2, hv = hh / 2, hd = dd / 2;
+    const verts: [number, number, number][] = [
+        [-hw, -hv, -hd], [hw, -hv, -hd], [hw, hv, -hd], [-hw, hv, -hd],
+        [-hw, -hv, hd], [hw, -hv, hd], [hw, hv, hd], [-hw, hv, hd],
     ];
 
-    const projected = verts.map(([x, y, z]) => {
-        let xr  =  x * cosY + z * sinY;
-        let yr  =  y;
-        let zr  = -x * sinY + z * cosY;
-        let yr2 =  yr * cosX - zr * sinX;
-        let zr2 =  yr * sinX + zr * cosX;
-        let xr2 =  xr * cosZ - yr2 * sinZ;
-        let yr3 =  xr * sinZ + yr2 * cosZ;
-        return [xr2, yr3];
+    // Apply globalScale multiplier here
+    const scale = ((size - 32) / (Math.max(ww, hh, dd) * 1.3)) * globalScale;
+    const cx = size / 2, cy = size / 2;
+
+    return verts.map(([x, y, z]) => {
+        const xr = x * cosY + z * sinY;
+        const yr = y;
+        const zr = -x * sinY + z * cosY;
+
+        const yr2 = yr * cosX - zr * sinX;
+        const zr2 = yr * sinX + zr * cosX;
+
+        const xr2 = xr * cosZ - yr2 * sinZ;
+        const yr3 = xr * sinZ + yr2 * cosZ;
+
+        // Return 3D coords [x2d, y2d, z_depth] so we can use Z for sorting
+        return [xr2 * scale + cx, yr3 * scale + cy, zr2];
+    });
+}
+
+// A sub-component to handle a specific depth index layer dynamically
+function DynamicEdge({ index, sortedEdges }: { index: number, sortedEdges: SharedValue<any[]> }) {
+    const path = useDerivedValue(() => {
+        const edge = sortedEdges.value[index];
+        const p = Skia.Path.Make();
+        if (edge) {
+            p.moveTo(edge.p1x, edge.p1y);
+            p.lineTo(edge.p2x, edge.p2y);
+        }
+        return p;
     });
 
-    const cx = size / 2, cy = size / 2;
-    const scale = (size - 32) / (Math.max(width, height, depth) * 1.3);
-    return projected.map(([x, y]) => [x * scale + cx, y * scale + cy]);
+    const color = useDerivedValue(() => {
+        return sortedEdges.value[index]?.color || "transparent";
+    });
+
+    return <Path path={path} color={color} style="stroke" strokeWidth={3} strokeCap="round" />;
 }
 
 export default function WireframeCuboid({
-                                            width = 120,
-                                            height = 100,
-                                            depth = 60,
-                                            size = 300,
-                                            rotationSpeedX = 0,
-                                            rotationSpeedY = 0,
-                                            rotationSpeedZ = 0,
-                                            targetAngleX,
-                                            targetAngleY,
-                                            targetAngleZ,
+                                            width = 120, height = 100, depth = 60, size = 300,
+                                            rotationSpeedX = 0, rotationSpeedY = 0, rotationSpeedZ = 0,
+                                            targetAngleX, targetAngleY, targetAngleZ,
+                                            globalScale = 1, // <--- New prop
                                         }: {
-    width?: number;
-    height?: number;
-    depth?: number;
-    size?: number;
-    rotationSpeedX?: number;
-    rotationSpeedY?: number;
-    rotationSpeedZ?: number;
-    targetAngleX?: number | undefined;
-    targetAngleY?: number | undefined;
-    targetAngleZ?: number | undefined;
+    width?: number; height?: number; depth?: number; size?: number;
+    rotationSpeedX?: number; rotationSpeedY?: number; rotationSpeedZ?: number;
+    targetAngleX?: number; targetAngleY?: number; targetAngleZ?: number;
+    globalScale?: number;
 }) {
-    // Store angle in a ref — no re-renders from angle changes
-    const angleRef = useRef({ x: 20, y: 0, z: 0 });
+    const angleX = useSharedValue(deg2rad(20));
+    const angleY = useSharedValue(0);
+    const angleZ = useSharedValue(0);
+    const speedX = useSharedValue(0);
+    const speedY = useSharedValue(0);
+    const speedZ = useSharedValue(0);
+    const hasTarget = useSharedValue(false);
+    const tgtX = useSharedValue(0);
+    const tgtY = useSharedValue(0);
+    const tgtZ = useSharedValue(0);
+    const w = useSharedValue(width);
+    const h = useSharedValue(height);
+    const d = useSharedValue(depth);
+    const scaleVal = useSharedValue(globalScale); // <--- Shared value for scale
 
-    // Store the computed line coords in a ref so we can update the SVG imperatively
-    const lineRefs = useRef<(React.ElementRef<typeof Line> | null)[]>([]);
-
-    const speedRef = useRef({ rotationSpeedX, rotationSpeedY, rotationSpeedZ });
-    const targetRef = useRef({ targetAngleX, targetAngleY, targetAngleZ });
-
-    // Keep speed/target refs up to date without restarting the loop
     useEffect(() => {
-        speedRef.current = { rotationSpeedX, rotationSpeedY, rotationSpeedZ };
+        speedX.value = deg2rad(rotationSpeedX);
+        speedY.value = deg2rad(rotationSpeedY);
+        speedZ.value = deg2rad(rotationSpeedZ);
     }, [rotationSpeedX, rotationSpeedY, rotationSpeedZ]);
 
     useEffect(() => {
-        targetRef.current = { targetAngleX, targetAngleY, targetAngleZ };
+        if (targetAngleX !== undefined && targetAngleY !== undefined && targetAngleZ !== undefined) {
+            tgtX.value = deg2rad(targetAngleX);
+            tgtY.value = deg2rad(targetAngleY);
+            tgtZ.value = deg2rad(targetAngleZ);
+            hasTarget.value = true;
+        } else {
+            hasTarget.value = false;
+        }
     }, [targetAngleX, targetAngleY, targetAngleZ]);
 
     useEffect(() => {
-        let raf: number;
-        let last = performance.now();
+        w.value = withTiming(width, { duration: 400, easing: Easing.out(Easing.cubic) });
+        h.value = withTiming(height, { duration: 400, easing: Easing.out(Easing.cubic) });
+        d.value = withTiming(depth, { duration: 400, easing: Easing.out(Easing.cubic) });
+    }, [width, height, depth]);
 
-        const tick = (now: number) => {
-            const dt = (now - last) / 1000;
-            last = now;
+    // Animate scale changes smoothly
+    useEffect(() => {
+        scaleVal.value = withTiming(globalScale, { duration: 400, easing: Easing.out(Easing.cubic) });
+    }, [globalScale]);
 
-            const { rotationSpeedX, rotationSpeedY, rotationSpeedZ } = speedRef.current;
-            const { targetAngleX, targetAngleY, targetAngleZ } = targetRef.current;
-            const a = angleRef.current;
+    useFrameCallback((frameInfo) => {
+        'worklet';
+        const dt = (frameInfo.timeSincePreviousFrame ?? 16) / 1000;
+        angleX.value += speedX.value * dt;
+        angleY.value += speedY.value * dt;
+        angleZ.value += speedZ.value * dt;
+        if (hasTarget.value) {
+            const ease = 0.05;
+            angleX.value += (tgtX.value - angleX.value) * ease;
+            angleY.value += (tgtY.value - angleY.value) * ease;
+            angleZ.value += (tgtZ.value - angleZ.value) * ease;
+        }
+    });
 
-            let newAngle = {
-                x: (a.x + rotationSpeedX * dt) % 360,
-                y: (a.y + rotationSpeedY * dt) % 360,
-                z: (a.z + rotationSpeedZ * dt) % 360,
+    // 1. Calculate projected points AND z-depths
+    // 2. Map edges to their coordinates + average z-depth
+    // 3. Sort edges back-to-front
+    const sortedEdges = useDerivedValue(() => {
+        const pts = projectAll(
+            angleX.value, angleY.value, angleZ.value,
+            w.value, h.value, d.value,
+            size, scaleVal.value
+        );
+
+        const edgesWithDepth = EDGES.map(edge => {
+            const z1 = pts[edge.a][2];
+            const z2 = pts[edge.b][2];
+            return {
+                ...edge,
+                z: (z1 + z2) / 2, // Average Z depth of the edge
+                p1x: pts[edge.a][0], p1y: pts[edge.a][1],
+                p2x: pts[edge.b][0], p2y: pts[edge.b][1],
             };
+        });
 
-            if (
-                targetAngleX !== undefined &&
-                targetAngleY !== undefined &&
-                targetAngleZ !== undefined
-            ) {
-                const ease = 0.05;
-                newAngle = {
-                    x: newAngle.x + (targetAngleX - newAngle.x) * ease,
-                    y: newAngle.y + (targetAngleY - newAngle.y) * ease,
-                    z: newAngle.z + (targetAngleZ - newAngle.z) * ease,
-                };
-            }
-
-            angleRef.current = newAngle;
-
-            // Compute new points and update SVG line elements imperatively
-            const points = computePoints(newAngle, width, height, depth, size);
-            EDGES.forEach(([a, b, _color], i) => {
-                const lineEl = lineRefs.current[i];
-                if (lineEl) {
-                    const [x1, y1] = points[a];
-                    const [x2, y2] = points[b];
-                    // react-native-svg supports setNativeProps for perf updates
-                    lineEl.setNativeProps({ x1: String(x1), y1: String(y1), x2: String(x2), y2: String(y2) });
-                }
-            });
-
-            raf = requestAnimationFrame(tick);
-        };
-
-        raf = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(raf);
-        // Only restart if the shape dimensions change — speed/target use refs
-    }, [width, height, depth, size]);
-
-    // Compute initial points for first render
-    const initialPoints = computePoints(angleRef.current, width, height, depth, size);
+        // Sort by Z (Painter's Algorithm).
+        // Smaller Z is further away, larger Z is closer to the screen.
+        edgesWithDepth.sort((e1, e2) => e2.z - e1.z);
+        return edgesWithDepth;
+    });
 
     return (
-        <Svg style={{ zIndex: 100, overflow: 'visible' }} width={size} height={size}>
-            {EDGES.map(([a, b, color], i) => {
-                const [x1, y1] = initialPoints[a];
-                const [x2, y2] = initialPoints[b];
-                return (
-                    <Line
-                        ref={(el) => { lineRefs.current[i] = el; }}
-                        key={i}
-                        x1={x1} y1={y1} x2={x2} y2={y2}
-                        stroke={color}
-                        strokeWidth={3}
-                        strokeLinecap="round"
-                    />
-                );
-            })}
-        </Svg>
+        <Canvas style={{ zIndex: 100, width: size, height: size }}>
+            {/* Map 12 discrete depth layers (0 = furthest, 11 = closest) */}
+            {Array.from({ length: 12 }).map((_, i) => (
+                <DynamicEdge key={i} index={i} sortedEdges={sortedEdges} />
+            ))}
+        </Canvas>
     );
 }
-

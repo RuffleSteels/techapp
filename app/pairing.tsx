@@ -15,6 +15,7 @@ import manager from "./components/bleManager";
 import {Device} from "../lib/types";
 import {loadData, saveData} from "../lib/utils";
 import {useBLE} from "../lib/BLEProvider";
+import {foregroundStyle, glassEffect, padding} from "@expo/ui/swift-ui/modifiers";
 
 function findFirstMissingId(items: Device[]): number {
     const ids = new Set(items.map(item => item.id));
@@ -187,12 +188,26 @@ export default function Pairing() {
                                 {
                                     devices.map((item, i) => (
 
-                                        <GlassView onTouchStart={()=> {
-                                            console.log('aa')
-                                        }} onTouchEndCapture={async () => {
-                                            await connectToDevice(item)
-                                        }} key={i} style={[localStyles.glassBox]} tintColor={'rgba(50,50,50,.7)'}
-                                                   glassEffectStyle="clear">
+                                        <GlassView
+                                            key={i}
+                                            style={[localStyles.glassBox]}
+                                            tintColor={'rgba(50,50,50,.7)'}
+                                            glassEffectStyle="clear"
+                                            onTouchStart={(e) => {
+                                                const { pageX, pageY } = e.nativeEvent;
+                                                (e.currentTarget as any)._touchStart = { x: pageX, y: pageY };
+                                            }}
+                                            onTouchEnd={async (e) => {
+                                                const start = (e.currentTarget as any)._touchStart;
+                                                if (!start) return;
+                                                const { pageX, pageY } = e.nativeEvent;
+                                                const dx = Math.abs(pageX - start.x);
+                                                const dy = Math.abs(pageY - start.y);
+                                                if (dx < 8 && dy < 8) {
+                                                    await connectToDevice(item);
+                                                }
+                                            }}
+                                        >
                                             <View style={{
                                                 flexDirection: 'row',
                                                 height: '100%',
@@ -324,62 +339,46 @@ export default function Pairing() {
 
 
 
-                            <View style={{width: '100%', alignItems: 'center', paddingBottom: 52}}>
-                                <View style={{
-                                    gap: 16,
-                                    width: '100%',
-                                    paddingHorizontal: 12
-                                }}>
-                                    {failed && (
-                                        <GlassView
-                                            style={[localStyles.warningContainer]}
-                                            glassEffectStyle="clear"
-                                            tintColor="rgba(50,50,50,.5)"
-                                        >
-                                            <IconSymbol size={40} color="#EAAC47" name="exclamationmark.triangle.fill"/>
-                                            <Text style={[localStyles.text, localStyles.body, {
-                                                flexShrink: 1,
-                                                flexGrow: 1,
-                                                width: 0
-                                            }
-                                            ]}>
-                                                Can&#39;t see your pod? Make sure the pod is switched on and that you are within 1m of
-                                                it.
-                                            </Text>
-                                        </GlassView>
-                                    )}
+                            {failed && (
+                                <Host style={{ width: '100%', height: 50 }}>
+                                    <Button
+                                        label="Try Again"
+                                        variant="plain"
+                                        modifiers={[
+                                            padding({ vertical: 8, horizontal: 14 }),
+                                            foregroundStyle('white'),
+                                            glassEffect({
+                                                glass: { variant: 'regular', interactive: true ,
+                                                    tint: 'rgba(255,255,255,0.1)',
+                                                },
+                                                shape: 'capsule'
+                                            }),
+                                        ]}
+                                        onPress={() => {
+                                            setFailed(false)
+                                            setScanTrigger(t => t + 1)
+                                        }}
+                                    />
+                                </Host>
+                            )}
 
-                                    {failed && (
-                                        <Host matchContents={{
-                                            vertical: true
-                                        }}>
-                                            <Button
-                                                role="default"
-                                                variant="glass"
-                                                onPress={() => {
-                                                    setFailed(false)
-                                                    setScanTrigger(t=>t+1)
-                                                }}
-                                            >
-                                                Try Again
-                                            </Button>
-                                        </Host>
-
-                                    )}
-
-                                    <Host matchContents={{
-                                        vertical: true
-                                    }}>
-                                        <Button
-                                            role="cancel"
-                                            variant="glass"
-                                            onPress={() => router.back()}
-                                        >
-                                            Cancel
-                                        </Button>
-                                    </Host>
-                                </View>
-                            </View>
+                            <Host style={{ zIndex:100, width: '100%', height: 50 }}>
+                                <Button
+                                    label="Cancel"
+                                    variant="plain"
+                                    modifiers={[
+                                        padding({ vertical: 8, horizontal: 14 }),
+                                        foregroundStyle('white'),
+                                        glassEffect({
+                                            glass: { variant: 'regular', interactive: true ,
+                                                tint: 'rgba(255,255,255,0.1)',
+                                            },
+                                            shape: 'capsule'
+                                        }),
+                                    ]}
+                                    onPress={() => router.back()}
+                                />
+                            </Host>
                         </View>
                         {
                             pairing ? <View style={{
