@@ -4,16 +4,17 @@ import * as Haptics from 'expo-haptics';
 import {styles} from "../lib/theme";
 import {Stack, useLocalSearchParams, useRouter} from "expo-router";
 import {Button, ContextMenu, Host, Menu} from '@expo/ui/swift-ui';
-
 import {GlassView} from "expo-glass-effect";
 import {font, foregroundStyle, frame, glassEffect, labelStyle, padding} from "@expo/ui/swift-ui/modifiers";
 import {useHeaderHeight} from '@react-navigation/elements';
-
 import {IconSymbol} from "../lib/ui/icon-symbol";
 import {findTop3ModesInRange, loadData, saveData, toDisplay, fromDisplay} from "../lib/utils";
 import {Device, Preset, Room} from "../lib/types";
 import {useBLE} from "../lib/BLEProvider";
 import Svg, { Path } from "react-native-svg";
+
+// DEV: import the mock helpers
+import { DEV_MODE, useMockBLE, MOCK_DEVICE_ENTRY, MOCK_PRESETS, MOCK_ROOMS } from "../lib/devMode";
 
 const WAVEFORM_SEED = 40;
 
@@ -122,7 +123,7 @@ function RoomCard({
     }, [item.dimensions, deviceRange]);
 
     return <GlassView
-        style={[localStyles.glassBox, {width: '100%', height: 'auto', paddingHorizontal: 0, paddingVertical: 0}]}
+        style={[localStyles.glassBox, {width: '100%', height: 103, paddingHorizontal: 0, paddingVertical: 0}]}
         tintColor={
             pendingRoomDimension?.id === item.id
                 ? 'rgba(80,80,80,.7)'
@@ -176,7 +177,19 @@ function RoomCard({
                                 gap: 8,
                                 zIndex: 100,
                                 transform: [{ translateY: -28 }],
-                            }}>
+                            }}><Host style={{ height: 36, width: 90 }}>
+                                <Button
+                                    label="Set"
+                                    variant="plain"
+                                    onPress={handleSetRoom}
+                                    modifiers={[
+                                        foregroundStyle('white'),
+                                        font({ size: 15 }),
+                                        frame({ maxWidth: 10000, maxHeight: 10000 }),
+                                        glassEffect({ glass: { variant: 'regular', interactive: true, tint: 'rgba(255,255,255,0.0)' }, shape: 'capsule' }),
+                                    ]}
+                                />
+                            </Host>
                                 <Host style={{ height: 36, width: 90 }}>
                                     <Button
                                         label="Cancel"
@@ -190,19 +203,7 @@ function RoomCard({
                                         ]}
                                     />
                                 </Host>
-                                <Host style={{ height: 36, width: 90 }}>
-                                    <Button
-                                        label="Set"
-                                        variant="plain"
-                                        onPress={handleSetRoom}
-                                        modifiers={[
-                                            foregroundStyle('white'),
-                                            font({ size: 15 }),
-                                            frame({ maxWidth: 10000, maxHeight: 10000 }),
-                                            glassEffect({ glass: { variant: 'regular', interactive: true, tint: 'rgba(255,255,255,0.0)' }, shape: 'capsule' }),
-                                        ]}
-                                    />
-                                </Host>
+
                             </View>
                         )}
                         <View style={{flexDirection: 'row', gap: 24, justifyContent: 'space-between', alignItems: 'flex-end'}}>
@@ -235,8 +236,6 @@ function RoomCard({
                                         fill="none"
                                     />
                                 </Svg>
-
-
                             </View>
                         </View>
                     </View>
@@ -271,7 +270,12 @@ export default function DeviceScreen() {
         visible: false, id: -1, name: ''
     });
     const animationRef = useRef<Animated.CompositeAnimation | null>(null);
-    const {sendMessage, connectedDevice: cd, disconnectDevice, connectedDevice} = useBLE();
+
+    // DEV: swap the BLE hook for the mock when DEV_MODE is on
+    const realBLE = useBLE();
+    const mockBLE = useMockBLE();
+    const {sendMessage, connectedDevice: cd, disconnectDevice, connectedDevice} = DEV_MODE ? mockBLE : realBLE;
+
     const [pendingPreset, setPendingPreset] = useState<number | null>(null);
     const [currentFrequency, _setCurrentFrequency] = useState(0);
     const [currentMode, setCurrentMode] = useState(-1);
@@ -334,6 +338,22 @@ export default function DeviceScreen() {
         const init = async () => {
             hasMismatch.current = false;
             isInitialSync.current = true;
+
+            // DEV: seed mock data into storage so screens have something to render
+            if (DEV_MODE) {
+                const existing = await loadData('devices');
+                if (!existing || existing.length === 0) {
+                    await saveData('devices', [MOCK_DEVICE_ENTRY]);
+                }
+                const existingPresets = await loadData('presets');
+                if (!existingPresets || existingPresets.length === 0) {
+                    await saveData('presets', MOCK_PRESETS);
+                }
+                const existingRooms = await loadData('rooms');
+                if (!existingRooms || existingRooms.length === 0) {
+                    await saveData('rooms', MOCK_ROOMS);
+                }
+            }
 
             let storedDevices = (await loadData('devices')) || [];
             const storedRooms = (await loadData('rooms')) || [];
@@ -415,7 +435,6 @@ export default function DeviceScreen() {
                 useNativeDriver: true,
             });
             animationRef.current.start();
-
         };
 
         init();
@@ -482,6 +501,8 @@ export default function DeviceScreen() {
 
     useEffect(() => {
         if (!isReady) return;
+        // DEV: never kick back to home screen when mocking
+        if (DEV_MODE) return;
         if (!connectedDevice) router.back();
     }, [connectedDevice, isReady]);
 
@@ -490,6 +511,11 @@ export default function DeviceScreen() {
         try {
             const response = await sendMessage('CALIBRATE');
             if (response === 'OK') {
+                setCurrentId(-1);
+                setCurrentMode(-1);
+                setPendingRoomDimension(null);
+                setPendingPreset(null);
+                _setCurrentFrequency(maxFrequency);
                 setCalibrateOverlay({ visible: true, status: 'success' });
                 setTimeout(() => setCalibrateOverlay(prev => ({ ...prev, visible: false })), 2000);
             } else {
@@ -512,7 +538,8 @@ export default function DeviceScreen() {
             room.dimensions[1] as number,
             room.dimensions[2] as number,
             [minFrequency, maxFrequency]
-        );        const freq = modes[pendingRoomDimension.dimension]?.frequency ?? 0;
+        );
+        const freq = modes[pendingRoomDimension.dimension]?.frequency ?? 0;
 
         previousSelection.current = { id: currentId, mode: currentMode };
         const success = await setCurrentFrequency(freq);
@@ -647,11 +674,10 @@ export default function DeviceScreen() {
                                     <View style={{ flexDirection: 'row', width: '100%', alignItems: 'center', justifyContent: 'space-between' }}>
                                         <Text style={[localStyles.text, localStyles.headline]}>Presets</Text>
                                         <Host matchContents>
-
-                                        <Menu label="Add" systemImage="plus" modifiers={[labelStyle('iconOnly'), foregroundStyle('white'), font({ size: 20 }), padding({horizontal: 4, vertical: 4}), glassEffect({ glass: { variant: 'regular', interactive: true, tint: 'rgba(255,255,255,0)' } })]}>
-                                            <Button label="From current" systemImage="plus.circle" onPress={() => { setPresetPopupWindow(0); setShowCreateModal(true); }} />
-                                            <Button label="New" systemImage="plus.circle" onPress={() => { setPresetPopupWindow(1); setShowCreateModal(true); }} />
-                                        </Menu>
+                                            <Menu label="Add" systemImage="plus" modifiers={[labelStyle('iconOnly'), foregroundStyle('white'), font({ size: 20 }), padding({horizontal: 4, vertical: 4}), glassEffect({ glass: { variant: 'regular', interactive: true, tint: 'rgba(255,255,255,0)' } })]}>
+                                                <Button label="From current" systemImage="plus.circle" onPress={() => { setPresetPopupWindow(0); setShowCreateModal(true); }} />
+                                                <Button label="New" systemImage="plus.circle" onPress={() => { setPresetPopupWindow(1); setShowCreateModal(true); }} />
+                                            </Menu>
                                         </Host>
                                     </View>
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{overflow: 'visible'}} contentContainerStyle={{ gap: 10, marginLeft: 0,paddingHorizontal: 0, marginHorizontal: -16 }}>
@@ -692,27 +718,25 @@ export default function DeviceScreen() {
                                             .map((item, i) => (
                                                 <Host key={item.id} matchContents>
                                                     <ContextMenu>
-                                                    <ContextMenu.Items>
-                                                        <Button label="Rename" systemImage="pencil" onPress={() => setRenameRoomModal({ visible: true, id: item.id, name: item.name })} />
-                                                        <Button label="Delete" systemImage="trash" role="destructive" onPress={() => setRooms(prev => prev.filter(x => x.id !== item.id))} />
-                                                    </ContextMenu.Items>
-                                                    <ContextMenu.Trigger>
-                                                        <View style={{ width: '100%' }}>
-
-                                                        <RoomCard
-                                                            item={item} i={i}
-                                                            setCurrentId={setCurrentId} setCurrentMode={setCurrentMode} setCurrentDimension={setCurrentDimension}
-                                                            setSetFrequencyModal={setSetFrequencyModal} setNewFrequency={setNewFrequency}
-                                                            currentMode={currentMode} currentDimension={currentDimension} currentId={currentId}
-                                                            pendingRoomDimension={pendingRoomDimension} setPendingRoomDimension={setPendingRoomDimension}
-                                                            handleSetRoom={handleSetRoom} deviceRange={[minFrequency, maxFrequency]}
-                                                        />
-                                                        </View>
-                                                    </ContextMenu.Trigger>
-
-                                                </ContextMenu>
-                                            </Host>
-                                        ))}
+                                                        <ContextMenu.Items>
+                                                            <Button label="Rename" systemImage="pencil" onPress={() => setRenameRoomModal({ visible: true, id: item.id, name: item.name })} />
+                                                            <Button label="Delete" systemImage="trash" role="destructive" onPress={() => setRooms(prev => prev.filter(x => x.id !== item.id))} />
+                                                        </ContextMenu.Items>
+                                                        <ContextMenu.Trigger>
+                                                            <View style={{ width: '100%' }}>
+                                                                <RoomCard
+                                                                    item={item} i={i}
+                                                                    setCurrentId={setCurrentId} setCurrentMode={setCurrentMode} setCurrentDimension={setCurrentDimension}
+                                                                    setSetFrequencyModal={setSetFrequencyModal} setNewFrequency={setNewFrequency}
+                                                                    currentMode={currentMode} currentDimension={currentDimension} currentId={currentId}
+                                                                    pendingRoomDimension={pendingRoomDimension} setPendingRoomDimension={setPendingRoomDimension}
+                                                                    handleSetRoom={handleSetRoom} deviceRange={[minFrequency, maxFrequency]}
+                                                                />
+                                                            </View>
+                                                        </ContextMenu.Trigger>
+                                                    </ContextMenu>
+                                                </Host>
+                                            ))}
                                     </View>
                                 </View>
                             </View>
@@ -770,17 +794,16 @@ export default function DeviceScreen() {
                     </Pressable>
                 </Pressable>
             </Modal>
-            
+
             <Modal visible={renameRoomModal.visible} transparent animationType="fade">
                 <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setRenameRoomModal(prev => ({ ...prev, visible: false }))}>
                     <GlassView style={{ width: '80%', padding: 24, borderRadius: 24, gap: 16 }} tintColor="rgba(50,50,50,0.7)" glassEffectStyle="regular">
                         <Text style={[localStyles.text, localStyles.headline]}>Rename Room</Text>
                         <TextInput value={renameRoomModal.name} onChangeText={t => setRenameRoomModal(prev => ({ ...prev, name: t }))} style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', borderRadius: 12, padding: 10 }} />
                         <Host matchContents>
-
-                        <Button label="Save" onPress={() => { setRooms(prev => prev.map(r => r.id === renameRoomModal.id ? { ...r, name: renameRoomModal.name } : r)); setRenameRoomModal(prev => ({ ...prev, visible: false })); }} />
+                            <Button label="Save" onPress={() => { setRooms(prev => prev.map(r => r.id === renameRoomModal.id ? { ...r, name: renameRoomModal.name } : r)); setRenameRoomModal(prev => ({ ...prev, visible: false })); }} />
                         </Host>
-                        </GlassView>
+                    </GlassView>
                 </Pressable>
             </Modal>
 
